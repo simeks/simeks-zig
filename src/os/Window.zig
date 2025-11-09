@@ -42,11 +42,25 @@ pub const MouseEvent = union(enum) {
     },
 };
 
+pub const KeyEvent = struct {
+    state: enum { pressed, released },
+    sym: u32,
+};
+
 const MouseListener = struct {
     data: ?*anyopaque,
     callback: *const fn (?*anyopaque, MouseEvent) void,
 
     pub fn dispatch(self: MouseListener, event: MouseEvent) void {
+        self.callback(self.data, event);
+    }
+};
+
+const KeyListener = struct {
+    data: ?*anyopaque,
+    callback: *const fn (?*anyopaque, KeyEvent) void,
+
+    pub fn dispatch(self: KeyListener, event: KeyEvent) void {
         self.callback(self.data, event);
     }
 };
@@ -66,6 +80,7 @@ const Context = struct {
     open: bool,
 
     mouse_listener: ?MouseListener,
+    key_listener: ?KeyListener,
 };
 
 const Window = @This();
@@ -102,6 +117,7 @@ pub fn init(gpa: Allocator, title: [:0]const u8) !Window {
         .height = 0,
         .open = true,
         .mouse_listener = null,
+        .key_listener = null,
     };
 
     registry.setListener(*Context, registryListener, context);
@@ -200,6 +216,18 @@ pub fn setMouseListener(
     data: T,
 ) void {
     self.context.mouse_listener = .{
+        .data = @ptrCast(data),
+        .callback = @ptrCast(callback),
+    };
+}
+
+pub fn setKeyListener(
+    self: *Window,
+    comptime T: type,
+    callback: *const fn (T, KeyEvent) void,
+    data: T,
+) void {
+    self.context.key_listener = .{
         .data = @ptrCast(data),
         .callback = @ptrCast(callback),
     };
@@ -306,11 +334,20 @@ fn keyboardListener(
         .enter => {},
         .leave => {},
         .key => |key| {
-            if (context.xkb_state) |state| {
-                // https://wayland.freedesktop.org/docs/html/apa.html#protocol-spec-wl_keyboard
-                const keycode = key.key + 8; // to xkb keycode (xkb_v1)
-                const sym = xkb.xkb_state_key_get_one_sym(state, keycode);
-                _ = sym;
+            if (context.key_listener) |kl| {
+                if (context.xkb_state) |state| {
+                    // https://wayland.freedesktop.org/docs/html/apa.html#protocol-spec-wl_keyboard
+                    const keycode = key.key + 8; // to xkb keycode (xkb_v1)
+                    const sym = xkb.xkb_state_key_get_one_sym(state, keycode);
+                    kl.dispatch(.{
+                        .state = switch (key.state) {
+                            .pressed => .pressed,
+                            .released => .released,
+                            else => @panic("unknown"),
+                        },
+                        .sym = sym,
+                    });
+                }
             }
         },
         .modifiers => |mod| {
@@ -362,13 +399,14 @@ fn pointerListener(
             }
         },
         .button => |button| {
-            const button_code: i32 = std.math.clamp(
-                @as(i32, @intCast(button.button)) - linux.BTN_LEFT,
-                0,
-                @intFromEnum(Button.unknown),
-            );
-            const logical_button: Button = @enumFromInt(button_code);
             if (context.mouse_listener) |ml| {
+                const button_code: i32 = std.math.clamp(
+                    @as(i32, @intCast(button.button)) - linux.BTN_LEFT,
+                    0,
+                    @intFromEnum(Button.unknown),
+                );
+                const logical_button: Button = @enumFromInt(button_code);
+
                 ml.dispatch(.{
                     .button = .{
                         .button = logical_button,
