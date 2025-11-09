@@ -1,0 +1,19 @@
+.{
+    .name = .sz_example,
+    .version = "0.0.1",
+    .fingerprint = 0xe4ffba2d7a2c4107,
+    .dependencies = .{
+        .simeks = .{
+            .path = "..",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "main.zig",
+        "bindless.h",
+        "gui.h",
+        "gui.vert",
+        "gui.frag",
+    },
+}

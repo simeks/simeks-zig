@@ -1,0 +1,29 @@
+.{
+    .name = .simeks,
+    .version = "0.0.1",
+    .minimum_zig_version = "0.15.1",
+    .fingerprint = 0x60037f0ff808c513,
+    .dependencies = .{
+        .vulkan_headers = .{
+            .url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/v1.3.283.tar.gz",
+            .hash = "N-V-__8AAAkkoQGn5z1yoNVrwqZfnYmZp8AZ5CJgoHRMQI0c",
+        },
+        .zig_vma = .{
+            .url = "git+https://github.com/simeks/zig-vma.git#d10f69ce5dbee2601ecd216806f261784050d1f5",
+            .hash = "zig_vma-0.0.0-Lu0kQfsHAAB7y28tU9JPI7EEA9ZlB3gHJbl6l0kSyVkD",
+        },
+        .vulkan = .{
+            .url = "git+https://github.com/snektron/vulkan-zig.git#93bc6f1ac3e13dd98d918e242dc892f179a0d0f5",
+            .hash = "vulkan-0.0.0-r7YtxwA_AwAU4rmOITZD_KJs11Kie1sv0t-pcMDQGIqw",
+        },
+        .wayland = .{
+            .url = "git+https://codeberg.org/ifreund/zig-wayland#b2df7eda58badac138faea6fd78c7f08c8ef936a",
+            .hash = "wayland-0.5.0-dev-lQa1ki7XAQA_o7YhtvwJW3DvNwhYkIsH14tWSb08JJHU",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
