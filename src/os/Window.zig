@@ -79,6 +79,8 @@ const Context = struct {
 
     open: bool,
 
+    cursor_pos: ?[2]f64,
+
     mouse_listener: ?MouseListener,
     key_listener: ?KeyListener,
 };
@@ -116,6 +118,7 @@ pub fn init(gpa: Allocator, title: [:0]const u8) !Window {
         .width = 0,
         .height = 0,
         .open = true,
+        .cursor_pos = null,
         .mouse_listener = null,
         .key_listener = null,
     };
@@ -208,6 +211,9 @@ pub fn isOpen(self: *const Window) bool {
 pub fn getSize(self: *const Window) [2]i32 {
     return .{ self.context.width, self.context.height };
 }
+pub fn getCursorPos(self: *const Window) ?[2]f64 {
+    return self.context.cursor_pos;
+}
 
 pub fn setMouseListener(
     self: *Window,
@@ -220,6 +226,9 @@ pub fn setMouseListener(
         .callback = @ptrCast(callback),
     };
 }
+pub fn unsetMouseListener(self: *Window) void {
+    self.context.mouse_listener = null;
+}
 
 pub fn setKeyListener(
     self: *Window,
@@ -231,6 +240,10 @@ pub fn setKeyListener(
         .data = @ptrCast(data),
         .callback = @ptrCast(callback),
     };
+}
+
+pub fn unsetKeyListener(self: *Window) void {
+    self.context.key_listener = null;
 }
 
 fn registryListener(
@@ -374,6 +387,10 @@ fn pointerListener(
     _ = pointer;
     switch (event) {
         .enter => |enter| {
+            context.cursor_pos = .{
+                enter.surface_x.toDouble(),
+                enter.surface_y.toDouble(),
+            };
             if (context.mouse_listener) |ml| {
                 ml.dispatch(.{
                     .enter = .{
@@ -389,6 +406,11 @@ fn pointerListener(
             }
         },
         .motion => |motion| {
+            context.cursor_pos = .{
+                motion.surface_x.toDouble(),
+                motion.surface_y.toDouble(),
+            };
+
             if (context.mouse_listener) |ml| {
                 ml.dispatch(.{
                     .motion = .{
