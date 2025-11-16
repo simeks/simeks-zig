@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 
 pub fn Set(Key: type) type {
@@ -10,6 +11,8 @@ pub const EventStream = @import("event.zig").Stream;
 pub const ext = @import("ext.zig");
 
 pub const OffsetAllocator = @import("OffsetAllocator.zig");
+
+pub const StringTable = @import("str.zig").StringTable(builtin.mode == .Debug);
 
 pub const DebugTimer = struct {
     name: []const u8,
@@ -35,4 +38,5 @@ test {
     _ = @import("event.zig");
     _ = @import("ext.zig");
     _ = @import("spsc_queue.zig");
+    _ = @import("str.zig");
 }

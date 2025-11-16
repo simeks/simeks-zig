@@ -26,9 +26,23 @@ const conv = @import("conv.zig");
 const sync = @import("sync.zig");
 const vma = @import("vma.zig");
 
-pub const WindowInterface = struct {
-    display: *anyopaque,
-    surface: *anyopaque,
+const StringTable = @import("core").StringTable;
+
+pub const WindowInterface = union(enum) {
+    wayland: struct {
+        display: *anyopaque,
+        surface: *anyopaque,
+    },
+    glfw: struct {
+        window: *anyopaque,
+
+        create_surface_fn: *const fn (
+            vk.Instance,
+            *anyopaque,
+            ?*const vk.AllocationCallbacks,
+            *vk.SurfaceKHR,
+        ) callconv(.c) vk.Result,
+    },
 };
 
 const vkGetInstanceProcAddr = @extern(vk.PfnGetInstanceProcAddr, .{
@@ -83,6 +97,8 @@ device_limits: vk.PhysicalDeviceLimits,
 
 pass_time_samples: std.ArrayList(root.PassTime),
 
+string_table: StringTable,
+
 pub fn create(allocator: Allocator, window: WindowInterface, fb_size: [2]u32) !*Gpu {
     const self = try allocator.create(Gpu);
     self.* = undefined;
@@ -127,10 +143,20 @@ pub fn create(allocator: Allocator, window: WindowInterface, fb_size: [2]u32) !*
         .family = candidate.queue_family,
     };
 
-    self.surface = try self.instance.createWaylandSurfaceKHR(&.{
-        .display = @ptrCast(window.display),
-        .surface = @ptrCast(window.surface),
-    }, null);
+    switch (window) {
+        .wayland => |w| {
+            self.surface = try self.instance.createWaylandSurfaceKHR(&.{
+                .display = @ptrCast(w.display),
+                .surface = @ptrCast(w.surface),
+            }, null);
+        },
+        .glfw => |w| {
+            if (w.create_surface_fn(self.instance.handle, w.window, null, &self.surface) != .success) {
+                return error.SurfaceInitFailed;
+            }
+        },
+    }
+
     errdefer self.instance.destroySurfaceKHR(self.surface, null);
 
     self.gpu_allocator = try .init(self);
@@ -188,6 +214,8 @@ pub fn create(allocator: Allocator, window: WindowInterface, fb_size: [2]u32) !*
     self.pass_time_samples = .empty;
     errdefer self.pass_time_samples.deinit(allocator);
 
+    self.string_table = .init(allocator);
+
     return self;
 }
 pub fn destroy(self: *Gpu) void {
@@ -221,6 +249,7 @@ pub fn destroy(self: *Gpu) void {
     destroyInstance(self.allocator, self.instance);
 
     self.pass_time_samples.deinit(self.allocator);
+    self.string_table.deinit();
     self.allocator.destroy(self);
 }
 

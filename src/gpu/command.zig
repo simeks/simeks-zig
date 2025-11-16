@@ -6,6 +6,8 @@ const assert = std.debug.assert;
 const vk = @import("vulkan");
 
 const root = @import("root.zig");
+const StringTable = @import("core").StringTable;
+
 const conv = @import("conv.zig");
 const sync = @import("sync.zig");
 
@@ -25,7 +27,7 @@ pub const CommandEncoder = struct {
 
     query_pool: vk.QueryPool,
 
-    pass_names: std.ArrayList(?[]const u8),
+    pass_names: std.ArrayList(?StringTable.Id),
 
     // 2 timestamps per pass, tick sample + availability
     pass_timestamps: [2 * max_query_sample_count]u64 = @splat(0),
@@ -77,7 +79,7 @@ pub const CommandEncoder = struct {
         try self.ctx.device.resetCommandPool(self.pool, .{});
         _ = self.temp_arena.reset(.retain_capacity);
 
-        self.pass_names = std.ArrayList(?[]const u8).initCapacity(
+        self.pass_names = std.ArrayList(?StringTable.Id).initCapacity(
             self.temp_arena.allocator(),
             root.max_num_passes,
         ) catch @panic("oom");
@@ -96,9 +98,10 @@ pub const CommandEncoder = struct {
     }
     pub fn beginRenderPass(
         self: *CommandEncoder,
+        comptime label: ?[]const u8,
         desc: *const root.RenderPassDesc,
     ) RenderPassEncoder {
-        self.recordBegin(desc.label);
+        self.recordBegin(label);
         return .begin(self.ctx, self.cb, desc);
     }
     pub fn endRenderPass(self: *CommandEncoder, pass: RenderPassEncoder) void {
@@ -106,7 +109,7 @@ pub const CommandEncoder = struct {
         self.ctx.device.cmdEndRenderingKHR(self.cb);
         self.recordEnd();
     }
-    pub fn beginComputePass(self: *CommandEncoder, label: ?[]const u8) ComputePassEncoder {
+    pub fn beginComputePass(self: *CommandEncoder, comptime label: ?[]const u8) ComputePassEncoder {
         self.recordBegin(label);
         return .begin(self.ctx, self.cb);
     }
@@ -139,7 +142,7 @@ pub const CommandEncoder = struct {
         );
     }
 
-    fn recordBegin(self: *CommandEncoder, name: ?[]const u8) void {
+    fn recordBegin(self: *CommandEncoder, comptime name: ?[]const u8) void {
         self.ctx.device.cmdWriteTimestamp(
             self.cb,
             .{ .top_of_pipe_bit = true },
@@ -147,7 +150,8 @@ pub const CommandEncoder = struct {
             @intCast(2 * self.pass_names.items.len),
         );
 
-        self.pass_names.appendBounded(name) catch
+        const id = if (name) |n| self.ctx.string_table.hash(n) else null;
+        self.pass_names.appendBounded(id) catch
             @panic("too many render passes");
     }
     fn recordEnd(self: *CommandEncoder) void {

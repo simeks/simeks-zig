@@ -2,6 +2,8 @@ const std = @import("std");
 
 pub const vk = @import("vulkan");
 
+const StringTable = @import("core").StringTable;
+
 pub const frames_in_flight = 2;
 pub const max_color_attachments = 4;
 pub const max_descriptor_sets = 4;
@@ -484,6 +486,6 @@ pub const ScissorRect = struct {
 };
 
 pub const PassTime = struct {
-    name: ?[]const u8,
+    name: ?StringTable.Id,
     time: f32,
 };
