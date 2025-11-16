@@ -72,7 +72,8 @@ const DragInteraction = enum {
 const Action = union(enum) {
     none: void,
     knob: struct {
-        pointer_y: f32,
+        origin_y: f32,
+        start_value: f32,
     },
 };
 
@@ -837,79 +838,105 @@ pub fn knob(
         .none => {},
         .hover => interact = .hover,
         .active, .clicked => {
-            if (self.action == .knob) {
-                const pointer_y = self.input.mouse_position[1];
-                const knob_action = &self.action.knob;
-                const delta = knob_action.pointer_y - pointer_y;
-                knob_action.pointer_y = pointer_y;
-
-                interact = .active;
-                new_value = std.math.clamp(
-                    value.* + delta * 0.005 * (max - min),
-                    min,
-                    max,
-                );
-            } else {
-                self.action = .{
-                    .knob = .{
-                        .pointer_y = self.input.mouse_position[1],
-                    },
-                };
-                interact = .active;
+            switch (self.action) {
+                .knob => |action| {
+                    const delta = action.origin_y - self.input.mouse_position[1];
+                    new_value = std.math.clamp(
+                        action.start_value + delta * 0.005 * (max - min),
+                        min,
+                        max,
+                    );
+                    interact = .active;
+                },
+                else => {
+                    self.action = .{
+                        .knob = .{
+                            .origin_y = self.input.mouse_position[1],
+                            .start_value = value.*,
+                        },
+                    };
+                    interact = .active;
+                },
             }
         },
     }
 
     if (new_value) |v| value.* = v;
 
-    // Drawing
+    self.drawKnob(
+        rect,
+        options.radius,
+        interact,
+        (value.* - min) / (max - min),
+    );
 
-    const knob_min_angle: f32 = -1.3 * std.math.pi;
-    const knob_max_angle: f32 = 0.3 * std.math.pi;
+    return new_value != null;
+}
 
-    const normalized = (value.* - min) / (max - min);
-    const angle = knob_min_angle + normalized * (knob_max_angle - knob_min_angle);
-    const c = std.math.cos(angle);
-    const s = std.math.sin(angle);
+pub fn discreteKnob(
+    self: *Gui,
+    name: []const u8,
+    value: *i32,
+    num_values: i32,
+    options: KnobOptions,
+) bool {
+    assert(num_values > 0);
+    assert(value.* >= 0);
+    assert(value.* < num_values);
 
-    const center: math.Vec2 = .{
-        rect.x + options.radius,
-        rect.y + options.radius,
+    // Layout
+    const parent = self.panel_stack.top() orelse @panic("no parent");
+
+    const size: math.Vec2 = .{ options.radius * 2.0, options.radius * 2.0 };
+    const position = parent.place(size);
+    const rect: Rect = .{
+        .x = position[0],
+        .y = position[1],
+        .width = size[0],
+        .height = size[1],
     };
 
-    self.main_commands.appendSlice(self.gpa, &.{
-        // Outer
-        .{
-            .filled_circle = .{
-                .center = center,
-                .radius = options.radius,
-                .color = switch (interact) {
-                    .active => self.style.button_hold_background,
-                    .hover => self.style.button_hover_background,
-                    .none => self.style.button_background,
+    // Input
+
+    var interact: DragInteraction = .none;
+    var new_value: ?i32 = null;
+    switch (self.interactClickable(self.id_stack.getHash(name), rect)) {
+        .none => {},
+        .hover => interact = .hover,
+        .active, .clicked => {
+            switch (self.action) {
+                .knob => |action| {
+                    const delta = action.origin_y - self.input.mouse_position[1];
+                    const target = action.start_value +
+                        delta * 0.005 * @as(f32, @floatFromInt(num_values));
+                    new_value = std.math.clamp(
+                        @as(i32, @intFromFloat(@round(target))),
+                        0,
+                        num_values - 1,
+                    );
+                    interact = .active;
                 },
-            },
-        },
-        // Inner
-        .{
-            .filled_circle = .{
-                .center = center,
-                .radius = options.radius * 0.72,
-                .color = self.style.background_color,
-            },
-        },
-        // Indicator
-        .{
-            .filled_circle = .{
-                .center = .{
-                    center[0] + c * options.radius * 0.65,
-                    center[1] + s * options.radius * 0.65,
+                else => {
+                    self.action = .{
+                        .knob = .{
+                            .origin_y = self.input.mouse_position[1],
+                            .start_value = @as(f32, @floatFromInt(value.*)),
+                        },
+                    };
+                    interact = .active;
                 },
-                .radius = @max(2.0, options.radius * 0.25),
-                .color = self.style.accent_color,
-            },
+            }
         },
-    }) catch @panic("oom");
+    }
+
+    if (new_value) |v| value.* = v;
+
+    self.drawKnob(
+        rect,
+        options.radius,
+        interact,
+        @as(f32, @floatFromInt(value.*)) / @as(f32, @floatFromInt(num_values - 1)),
+    );
 
     return new_value != null;
 }
@@ -974,4 +1001,58 @@ pub fn measureText(self: *const Gui, text: []const u8, options: TextOptions) mat
         @max(max_width, line_width),
         options.size * line_count + line_advance * (line_count - 1.0),
     };
+}
+
+fn drawKnob(
+    self: *Gui,
+    rect: Rect,
+    radius: f32,
+    interact: DragInteraction,
+    normalize_value: f32,
+) void {
+    const knob_min_angle: f32 = -1.3 * std.math.pi;
+    const knob_max_angle: f32 = 0.3 * std.math.pi;
+
+    const angle = knob_min_angle + normalize_value * (knob_max_angle - knob_min_angle);
+    const c = std.math.cos(angle);
+    const s = std.math.sin(angle);
+
+    const center: math.Vec2 = .{
+        rect.x + radius,
+        rect.y + radius,
+    };
+
+    self.main_commands.appendSlice(self.gpa, &.{
+        // Outer
+        .{
+            .filled_circle = .{
+                .center = center,
+                .radius = radius,
+                .color = switch (interact) {
+                    .active => self.style.button_hold_background,
+                    .hover => self.style.button_hover_background,
+                    .none => self.style.button_background,
+                },
+            },
+        },
+        // Inner
+        .{
+            .filled_circle = .{
+                .center = center,
+                .radius = radius * 0.72,
+                .color = self.style.background_color,
+            },
+        },
+        // Indicator
+        .{
+            .filled_circle = .{
+                .center = .{
+                    center[0] + c * radius * 0.65,
+                    center[1] + s * radius * 0.65,
+                },
+                .radius = @max(2.0, radius * 0.25),
+                .color = self.style.accent_color,
+            },
+        },
+    }) catch @panic("oom");
 }
