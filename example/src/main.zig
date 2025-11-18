@@ -34,6 +34,7 @@ fn handleMouse(state: ?*Gui.InputState, event: Window.MouseEvent) void {
                     s.mouse_left_down = button.state == .pressed;
                 }
             },
+            .scroll => {},
         }
     }
 }

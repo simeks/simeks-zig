@@ -29,6 +29,10 @@ pub const MouseEvent = union(enum) {
         button: Button,
         state: wl.Pointer.ButtonState,
     },
+    scroll: struct {
+        x: f64,
+        y: f64,
+    },
 };
 
 pub const KeyEvent = struct {
@@ -709,7 +713,18 @@ fn pointerListener(
                 });
             }
         },
-        .axis => {},
+        .axis => |axis| {
+            if (context.mouse_listener) |ml| {
+                // Same ratio as GLFW
+                const value = -axis.value.toDouble() / 10.0;
+                ml.dispatch(.{
+                    .scroll = .{
+                        .x = if (axis.axis == .horizontal_scroll) value else 0.0,
+                        .y = if (axis.axis == .vertical_scroll) value else 0.0,
+                    },
+                });
+            }
+        },
     }
 }
 
