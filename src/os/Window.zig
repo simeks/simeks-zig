@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 const wayland = @import("wayland");
 const wl = wayland.client.wl;
 const xdg = wayland.client.xdg;
+const zwp = wayland.client.zwp;
 
 const xkb = @cImport({
     @cInclude("xkbcommon/xkbcommon.h");
@@ -36,6 +37,11 @@ pub const KeyEvent = struct {
     sym: u32,
 };
 
+pub const CursorMode = enum {
+    normal,
+    captured,
+};
+
 const MouseListener = struct {
     data: ?*anyopaque,
     callback: *const fn (?*anyopaque, MouseEvent) void,
@@ -54,10 +60,79 @@ const KeyListener = struct {
     }
 };
 
+const Cursor = struct {
+    surface: *wl.Surface,
+    theme: *wl.CursorTheme,
+    buffer: *wl.Buffer,
+    size: [2]u32,
+    hotspot: [2]u32,
+
+    fn load(compositor: *wl.Compositor, shm: *wl.Shm) !Cursor {
+        const surface = try compositor.createSurface();
+        errdefer surface.destroy();
+
+        const theme: *wl.CursorTheme = try .load(null, 24, shm);
+        errdefer theme.destroy();
+
+        const cursor = wl.CursorTheme.getCursor(theme, "left_ptr") orelse
+            return error.CursorNotFound;
+
+        if (cursor.image_count == 0) {
+            return error.CursorNoImages;
+        }
+
+        const image = cursor.images[0];
+        const buffer = try image.getBuffer();
+
+        return .{
+            .surface = surface,
+            .theme = theme,
+            .buffer = buffer,
+            .size = .{
+                image.width,
+                image.height,
+            },
+            .hotspot = .{
+                image.hotspot_x,
+                image.hotspot_y,
+            },
+        };
+    }
+    fn unload(self: Cursor) void {
+        self.surface.destroy();
+        self.theme.destroy();
+    }
+
+    fn show(self: *const Cursor, pointer: *wl.Pointer, serial: u32) void {
+        self.surface.attach(self.buffer, 0, 0);
+        self.surface.damage(0, 0, @intCast(self.size[0]), @intCast(self.size[1]));
+        self.surface.commit();
+
+        pointer.setCursor(
+            serial,
+            self.surface,
+            @intCast(self.hotspot[0]),
+            @intCast(self.hotspot[1]),
+        );
+    }
+    fn hide(self: *const Cursor, pointer: *wl.Pointer, serial: u32) void {
+        _ = self;
+        pointer.setCursor(serial, null, 0, 0);
+    }
+};
+
 const Context = struct {
     compositor: ?*wl.Compositor,
     seat: ?*wl.Seat,
+    shm: ?*wl.Shm,
     wm_base: ?*xdg.WmBase,
+    pointer_constraints: ?*zwp.PointerConstraintsV1,
+    relative_pointer_manager: ?*zwp.RelativePointerManagerV1,
+
+    locked_pointer: ?*zwp.LockedPointerV1,
+    relative_pointer: ?*zwp.RelativePointerV1,
+
+    cursor: ?Cursor,
 
     xkb_context: ?*xkb.xkb_context,
     xkb_keymap: ?*xkb.xkb_keymap,
@@ -69,9 +144,54 @@ const Context = struct {
     open: bool,
 
     cursor_pos: ?[2]f64,
+    cursor_mode: CursorMode,
+    cursor_serial: ?u32,
 
     mouse_listener: ?MouseListener,
     key_listener: ?KeyListener,
+
+    fn deinit(self: *Context) void {
+        if (self.compositor) |compositor| {
+            compositor.destroy();
+            self.compositor = null;
+        }
+        if (self.seat) |seat| {
+            seat.destroy();
+            self.seat = null;
+        }
+        if (self.shm) |shm| {
+            shm.destroy();
+            self.shm = null;
+        }
+        if (self.wm_base) |wm_base| {
+            wm_base.destroy();
+            self.wm_base = null;
+        }
+        if (self.pointer_constraints) |pointer_constraints| {
+            pointer_constraints.destroy();
+            self.pointer_constraints = null;
+        }
+        if (self.relative_pointer_manager) |relative_pointer_manager| {
+            relative_pointer_manager.destroy();
+            self.relative_pointer_manager = null;
+        }
+        if (self.locked_pointer) |locked| {
+            locked.destroy();
+            self.locked_pointer = null;
+        }
+        if (self.relative_pointer) |relative| {
+            relative.destroy();
+            self.relative_pointer = null;
+        }
+        if (self.cursor) |cursor| {
+            cursor.unload();
+            self.cursor = null;
+        }
+
+        xkb.xkb_context_unref(self.xkb_context);
+        xkb.xkb_keymap_unref(self.xkb_keymap);
+        xkb.xkb_state_unref(self.xkb_state);
+    }
 };
 
 const Window = @This();
@@ -100,7 +220,11 @@ pub fn init(gpa: Allocator, title: [:0]const u8) !Window {
     context.* = .{
         .compositor = null,
         .seat = null,
+        .shm = null,
         .wm_base = null,
+        .pointer_constraints = null,
+        .relative_pointer_manager = null,
+        .cursor = null,
         .xkb_context = null,
         .xkb_keymap = null,
         .xkb_state = null,
@@ -108,22 +232,21 @@ pub fn init(gpa: Allocator, title: [:0]const u8) !Window {
         .height = 0,
         .open = true,
         .cursor_pos = null,
+        .cursor_mode = .normal,
+        .cursor_serial = null,
+        .locked_pointer = null,
+        .relative_pointer = null,
         .mouse_listener = null,
         .key_listener = null,
     };
+    errdefer context.deinit();
 
     registry.setListener(*Context, registryListener, context);
     if (display.roundtrip() != .SUCCESS) return error.RoundtripFailed;
 
-    errdefer if (context.compositor) |compositor| {
-        compositor.destroy();
-    };
-    errdefer if (context.wm_base) |wm_base| {
-        wm_base.destroy();
-    };
-
     const compositor = context.compositor orelse return error.NoCompositor;
     const seat = context.seat orelse return error.NoSeat;
+    const shm = context.shm orelse return error.NoShm;
     const wm_base = context.wm_base orelse return error.NoWmBase;
 
     const surface = try compositor.createSurface();
@@ -150,6 +273,11 @@ pub fn init(gpa: Allocator, title: [:0]const u8) !Window {
     keyboard.setListener(*Context, keyboardListener, context);
     pointer.setListener(*Context, pointerListener, context);
 
+    const cursor: Cursor = try .load(compositor, shm);
+    errdefer cursor.unload();
+
+    context.cursor = cursor;
+
     context.xkb_context = xkb.xkb_context_new(0);
     errdefer xkb.xkb_context_unref(context.xkb_context);
 
@@ -174,22 +302,14 @@ pub fn deinit(self: *Window, gpa: Allocator) void {
     self.xdg_surface.destroy();
     self.surface.destroy();
 
-    if (self.context.compositor) |compositor| {
-        compositor.destroy();
-    }
-    if (self.context.wm_base) |wm_base| {
-        wm_base.destroy();
-    }
+    self.context.deinit();
 
     self.registry.destroy();
     self.display.disconnect();
 
-    xkb.xkb_context_unref(self.context.xkb_context);
-    xkb.xkb_keymap_unref(self.context.xkb_keymap);
-    xkb.xkb_state_unref(self.context.xkb_state);
-
     gpa.destroy(self.context);
 }
+
 pub fn poll(self: *Window) void {
     _ = self.display.dispatchPending();
     _ = self.display.flush();
@@ -202,6 +322,66 @@ pub fn getSize(self: *const Window) [2]i32 {
 }
 pub fn getCursorPos(self: *const Window) ?[2]f64 {
     return self.context.cursor_pos;
+}
+
+pub fn setCursorMode(self: *Window, mode: CursorMode) !void {
+    if (self.context.cursor_mode == mode) return;
+
+    switch (mode) {
+        .normal => {
+            if (self.context.locked_pointer) |locked| {
+                locked.destroy();
+                self.context.locked_pointer = null;
+            }
+            if (self.context.relative_pointer) |relative| {
+                relative.destroy();
+                self.context.relative_pointer = null;
+            }
+            if (self.context.cursor) |cursor| {
+                if (self.context.cursor_serial) |serial| {
+                    cursor.show(self.pointer, serial);
+                }
+            }
+            self.context.cursor_mode = .normal;
+        },
+        .captured => {
+            const constraints = self.context.pointer_constraints orelse
+                return error.MissingPointerConstraints;
+            const manager = self.context.relative_pointer_manager orelse
+                return error.MissingRelativePointer;
+
+            if (self.context.locked_pointer == null) {
+                self.context.locked_pointer = constraints.lockPointer(
+                    self.surface,
+                    self.pointer,
+                    null,
+                    .persistent,
+                ) catch return error.LockPointerFailed;
+            }
+            errdefer if (self.context.locked_pointer) |locked| {
+                locked.destroy();
+                self.context.locked_pointer = null;
+            };
+
+            if (self.context.relative_pointer == null) {
+                const relative = manager.getRelativePointer(self.pointer) catch
+                    return error.GetRelativePointerFailed;
+                relative.setListener(*Context, relativePointerListener, self.context);
+                self.context.relative_pointer = relative;
+            }
+            errdefer if (self.context.relative_pointer) |relative| {
+                relative.destroy();
+                self.context.relative_pointer = null;
+            };
+
+            if (self.context.cursor) |cursor| {
+                if (self.context.cursor_serial) |serial| {
+                    cursor.hide(self.pointer, serial);
+                }
+            }
+            self.context.cursor_mode = .captured;
+        },
+    }
 }
 
 pub fn setMouseListener(
@@ -243,11 +423,25 @@ fn registryListener(
     switch (event) {
         .global => |global| {
             if (std.mem.orderZ(u8, global.interface, wl.Compositor.interface.name) == .eq) {
-                context.compositor = registry.bind(global.name, wl.Compositor, 1) catch return;
+                context.compositor = registry.bind(global.name, wl.Compositor, wl.Compositor.generated_version) catch return;
             } else if (std.mem.orderZ(u8, global.interface, wl.Seat.interface.name) == .eq) {
-                context.seat = registry.bind(global.name, wl.Seat, 1) catch return;
+                context.seat = registry.bind(global.name, wl.Seat, wl.Seat.generated_version) catch return;
+            } else if (std.mem.orderZ(u8, global.interface, wl.Shm.interface.name) == .eq) {
+                context.shm = registry.bind(global.name, wl.Shm, wl.Shm.generated_version) catch return;
             } else if (std.mem.orderZ(u8, global.interface, xdg.WmBase.interface.name) == .eq) {
-                context.wm_base = registry.bind(global.name, xdg.WmBase, 1) catch return;
+                context.wm_base = registry.bind(global.name, xdg.WmBase, xdg.WmBase.generated_version) catch return;
+            } else if (std.mem.orderZ(u8, global.interface, zwp.PointerConstraintsV1.interface.name) == .eq) {
+                context.pointer_constraints = registry.bind(
+                    global.name,
+                    zwp.PointerConstraintsV1,
+                    zwp.PointerConstraintsV1.generated_version,
+                ) catch return;
+            } else if (std.mem.orderZ(u8, global.interface, zwp.RelativePointerManagerV1.interface.name) == .eq) {
+                context.relative_pointer_manager = registry.bind(
+                    global.name,
+                    zwp.RelativePointerManagerV1,
+                    zwp.RelativePointerManagerV1.generated_version,
+                ) catch return;
             }
         },
         .global_remove => {},
@@ -374,9 +568,9 @@ fn pointerListener(
     event: wl.Pointer.Event,
     context: *Context,
 ) void {
-    _ = pointer;
     switch (event) {
         .enter => |enter| {
+            context.cursor_serial = enter.serial;
             context.cursor_pos = .{
                 enter.surface_x.toDouble(),
                 enter.surface_y.toDouble(),
@@ -389,8 +583,13 @@ fn pointerListener(
                     },
                 });
             }
+
+            if (context.cursor) |cursor| {
+                cursor.show(pointer, enter.serial);
+            }
         },
         .leave => {
+            context.cursor_serial = null;
             if (context.mouse_listener) |ml| {
                 ml.dispatch(.leave);
             }
@@ -401,13 +600,15 @@ fn pointerListener(
                 motion.surface_y.toDouble(),
             };
 
-            if (context.mouse_listener) |ml| {
-                ml.dispatch(.{
-                    .motion = .{
-                        .x = motion.surface_x.toDouble(),
-                        .y = motion.surface_y.toDouble(),
-                    },
-                });
+            if (context.cursor_mode == .normal) {
+                if (context.mouse_listener) |ml| {
+                    ml.dispatch(.{
+                        .motion = .{
+                            .x = motion.surface_x.toDouble(),
+                            .y = motion.surface_y.toDouble(),
+                        },
+                    });
+                }
             }
         },
         .button => |button| {
@@ -428,6 +629,28 @@ fn pointerListener(
             }
         },
         .axis => {},
+    }
+}
+
+fn relativePointerListener(
+    relative_pointer: *zwp.RelativePointerV1,
+    event: zwp.RelativePointerV1.Event,
+    context: *Context,
+) void {
+    _ = relative_pointer;
+    switch (event) {
+        .relative_motion => |motion| {
+            if (context.cursor_mode != .captured) return;
+
+            if (context.mouse_listener) |ml| {
+                ml.dispatch(.{
+                    .motion = .{
+                        .x = motion.dx.toDouble(),
+                        .y = motion.dy.toDouble(),
+                    },
+                });
+            }
+        },
     }
 }
 

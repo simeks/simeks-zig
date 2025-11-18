@@ -35,7 +35,12 @@ pub fn build(b: *std.Build) void {
     scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
     scanner.generate("wl_compositor", 1);
     scanner.generate("wl_seat", 1);
+    scanner.generate("wl_shm", 1);
     scanner.generate("xdg_wm_base", 1);
+    scanner.addSystemProtocol("unstable/pointer-constraints/pointer-constraints-unstable-v1.xml");
+    scanner.generate("zwp_pointer_constraints_v1", 1);
+    scanner.addSystemProtocol("unstable/relative-pointer/relative-pointer-unstable-v1.xml");
+    scanner.generate("zwp_relative_pointer_manager_v1", 1);
 
     const wayland_mod = b.createModule(.{
         .root_source_file = scanner.result,
@@ -112,6 +117,7 @@ pub fn build(b: *std.Build) void {
 pub fn linkSystemLibraries(exe: *std.Build.Step.Compile) void {
     exe.linkLibC();
     exe.linkSystemLibrary("wayland-client");
+    exe.linkSystemLibrary("wayland-cursor");
     exe.linkSystemLibrary("vulkan");
     exe.linkSystemLibrary("xkbcommon");
 }
