@@ -57,8 +57,10 @@ pub fn main() !void {
     var gpu: *Gpu = try .create(
         gpa,
         .{
-            .display = window.display,
-            .surface = window.surface,
+            .wayland = .{
+                .display = window.display,
+                .surface = window.surface,
+            },
         },
         .{ 400, 500 },
     );
@@ -93,7 +95,7 @@ pub fn main() !void {
 
     var knob_val1: f32 = 0.0;
     var knob_val2: f32 = 0.0;
-    var knob_val3: f32 = 0.0;
+    var knob_val3: i32 = 0;
 
     while (window.isOpen()) {
         window.poll();
@@ -181,7 +183,7 @@ pub fn main() !void {
                     gui.beginPanel("knob3", .{});
                     defer gui.endPanel();
 
-                    _ = gui.knob("knob3", &knob_val3, 0, 100, .{});
+                    _ = gui.discreteKnob("knob3", &knob_val3, 5, .{});
                     gui.labelFmt("{d:.0}", .{knob_val3}, .{});
                 }
             }
@@ -328,8 +330,7 @@ pub const GuiPass = struct {
         frame: sgpu.Frame,
         gui: *const Gui,
     ) void {
-        var pass = cmd.beginRenderPass(&.{
-            .label = "gui",
+        var pass = cmd.beginRenderPass("gui", &.{
             .color_attachments = &.{
                 .{
                     .view = frame.view,
