@@ -37,6 +37,14 @@ pub const KeyEvent = struct {
     sym: u32,
 };
 
+pub const WindowEvent = union(enum) {
+    focus: bool,
+    resize: struct {
+        width: i32,
+        height: i32,
+    },
+};
+
 pub const CursorMode = enum {
     normal,
     captured,
@@ -56,6 +64,15 @@ const KeyListener = struct {
     callback: *const fn (?*anyopaque, KeyEvent) void,
 
     pub fn dispatch(self: KeyListener, event: KeyEvent) void {
+        self.callback(self.data, event);
+    }
+};
+
+const WindowListener = struct {
+    data: ?*anyopaque,
+    callback: *const fn (?*anyopaque, WindowEvent) void,
+
+    pub fn dispatch(self: WindowListener, event: WindowEvent) void {
         self.callback(self.data, event);
     }
 };
@@ -142,6 +159,7 @@ const Context = struct {
     height: i32,
 
     open: bool,
+    focused: bool,
 
     cursor_pos: ?[2]f64,
     cursor_mode: CursorMode,
@@ -149,6 +167,7 @@ const Context = struct {
 
     mouse_listener: ?MouseListener,
     key_listener: ?KeyListener,
+    window_listener: ?WindowListener,
 
     fn deinit(self: *Context) void {
         if (self.compositor) |compositor| {
@@ -231,6 +250,7 @@ pub fn init(gpa: Allocator, title: [:0]const u8) !Window {
         .width = 0,
         .height = 0,
         .open = true,
+        .focused = false,
         .cursor_pos = null,
         .cursor_mode = .normal,
         .cursor_serial = null,
@@ -238,6 +258,7 @@ pub fn init(gpa: Allocator, title: [:0]const u8) !Window {
         .relative_pointer = null,
         .mouse_listener = null,
         .key_listener = null,
+        .window_listener = null,
     };
     errdefer context.deinit();
 
@@ -415,6 +436,22 @@ pub fn unsetKeyListener(self: *Window) void {
     self.context.key_listener = null;
 }
 
+pub fn setWindowListener(
+    self: *Window,
+    comptime T: type,
+    callback: *const fn (T, WindowEvent) void,
+    data: T,
+) void {
+    self.context.window_listener = .{
+        .data = @ptrCast(data),
+        .callback = @ptrCast(callback),
+    };
+}
+
+pub fn unsetWindowListener(self: *Window) void {
+    self.context.window_listener = null;
+}
+
 fn registryListener(
     registry: *wl.Registry,
     event: wl.Registry.Event,
@@ -481,8 +518,38 @@ fn xdgToplevelListener(
 ) void {
     switch (event) {
         .configure => |configure| {
+            const resized = context.width != configure.width or context.height != configure.height;
             context.width = configure.width;
             context.height = configure.height;
+
+            if (resized) {
+                if (context.window_listener) |l| {
+                    l.dispatch(.{
+                        .resize = .{
+                            .width = context.width,
+                            .height = context.height,
+                        },
+                    });
+                }
+            }
+
+            var is_focused = false;
+            const states_array = configure.states.*;
+            const states = states_array.slice(c_int);
+            for (states) |raw_state| {
+                const state: xdg.Toplevel.State = @enumFromInt(raw_state);
+                if (state == .activated) {
+                    is_focused = true;
+                    break;
+                }
+            }
+
+            if (context.focused != is_focused) {
+                context.focused = is_focused;
+                if (context.window_listener) |l| {
+                    l.dispatch(.{ .focus = is_focused });
+                }
+            }
         },
         .close => context.open = false,
     }
@@ -527,8 +594,22 @@ fn keyboardListener(
             context.xkb_keymap = xkb_keymap;
             context.xkb_state = xkb_state;
         },
-        .enter => {},
-        .leave => {},
+        .enter => {
+            if (!context.focused) {
+                context.focused = true;
+                if (context.window_listener) |l| {
+                    l.dispatch(.{ .focus = true });
+                }
+            }
+        },
+        .leave => {
+            if (context.focused) {
+                context.focused = false;
+                if (context.window_listener) |l| {
+                    l.dispatch(.{ .focus = false });
+                }
+            }
+        },
         .key => |key| {
             if (context.key_listener) |kl| {
                 if (context.xkb_state) |state| {
