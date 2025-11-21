@@ -43,6 +43,7 @@ pub const Rect = struct {
 
 pub const Color = packed struct(u32) {
     pub const white: Color = .rgb(255, 255, 255);
+    pub const black: Color = .rgb(0, 0, 0);
     pub const red: Color = .rgb(255, 0, 0);
     pub const green: Color = .rgb(0, 255, 0);
     pub const blue: Color = .rgb(0, 0, 255);
@@ -87,6 +88,7 @@ pub const DrawData = struct {
 };
 
 pub const Gui = @import("Gui.zig");
+pub const DrawList = @import("DrawList.zig");
 
 test {
     _ = @import("Gui.zig");
