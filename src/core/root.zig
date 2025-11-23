@@ -9,6 +9,7 @@ pub const Deque = @import("deque.zig").Deque;
 pub const SpscQueue = @import("spsc_queue.zig").SpscQueue;
 pub const EventStream = @import("event.zig").Stream;
 pub const ext = @import("ext.zig");
+pub const tga = @import("tga.zig");
 
 pub const OffsetAllocator = @import("OffsetAllocator.zig");
 
@@ -39,4 +40,5 @@ test {
     _ = @import("ext.zig");
     _ = @import("spsc_queue.zig");
     _ = @import("str.zig");
+    _ = @import("tga.zig");
 }
