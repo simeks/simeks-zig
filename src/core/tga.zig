@@ -63,7 +63,10 @@ pub fn readImpl(gpa: Allocator, reader: *std.Io.Reader) !Image {
     assert((header.image_descriptor & 0b10000) == 0);
 
     const top_to_bottom = (header.image_descriptor & 0b0010_0000) != 0;
-    const num_pixels = header.width * header.height;
+
+    const width: usize = header.width;
+    const height: usize = header.height;
+    const num_pixels = width * height;
 
     const pixels = try gpa.alloc(u8, num_pixels);
     errdefer gpa.free(pixels);

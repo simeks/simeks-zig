@@ -63,7 +63,7 @@ pub fn main() !void {
                 .surface = window.surface,
             },
         },
-        .{ 400, 500 },
+        .{ 400, 600 },
     );
 
     defer gpu.destroy();
@@ -80,14 +80,14 @@ pub fn main() !void {
     var num_clicks: usize = 0;
 
     const selections1: []const []const u8 = &.{
-        "one",
-        "two",
-        "three",
+        "One",
+        "Two",
+        "Three",
     };
     const selections2: []const []const u8 = &.{
-        "four",
-        "five",
-        "six",
+        "Röd",
+        "Grön",
+        "Blå",
     };
     var selected1: usize = 0;
     var selected2: usize = 0;
@@ -119,7 +119,7 @@ pub fn main() !void {
             gui.beginPanel("root", .{});
             defer gui.endPanel();
 
-            gui.label("Example", .{ .size = 40, .color = gui.style.accent_color });
+            gui.label("EXAMPLE", .{ .size = 44, .color = gui.style.accent_color });
 
             gui.labelFmt("Frame: {d}", .{frame_idx}, .{});
             frame_idx +%= 1;
@@ -278,8 +278,8 @@ pub const GuiPass = struct {
             .type = .d2,
             .usage = .{ .sampled = true },
             .size = .{
-                .width = gui.atlas.width,
-                .height = gui.atlas.height,
+                .width = @intCast(gui.atlas.image.width),
+                .height = @intCast(gui.atlas.image.height),
             },
             .format = .r8_unorm,
         });
@@ -303,7 +303,7 @@ pub const GuiPass = struct {
         });
         errdefer gpu.releaseSampler(sampler);
 
-        try gpu.uploadTexture(atlas_texture, gui.atlas.pixels);
+        try gpu.uploadTexture(atlas_texture, gui.atlas.image.pixels);
 
         return .{
             .vs = vs,

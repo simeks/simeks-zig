@@ -1,199 +1,128 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 
+const core = @import("core");
 const math = @import("math");
 
-pub const font_glyph_height = 7;
-pub const font_glyph_width = 5;
-pub const font_glyph_advance = font_glyph_width + 1;
-pub const font_line_spacing = 4;
+const tga = core.tga;
 
-const padding = 1;
-const cell_width = font_glyph_width + padding * 2;
-const cell_height = font_glyph_height + padding * 2;
+const atlas_def = @import("atlas.zon");
+const atlas_data = @embedFile("atlas.tga");
 
-const glyph_count = glyph_bitmaps.len + 1; // +1 for fallback
-const columns = 16;
-const rows = (glyph_count + columns - 1) / columns;
+const TextOptions = @import("root.zig").TextOptions;
 
-const atlas_width = cell_width * columns;
-const atlas_height = cell_height * rows;
-const inv_atlas_width = 1.0 / @as(f32, @floatFromInt(atlas_width));
-const inv_atlas_height = 1.0 / @as(f32, @floatFromInt(atlas_height));
-const ascii_count = 256;
+const GlyphLookup = std.AutoHashMap(i32, usize);
+
+pub const font_glyph_height = atlas_def.font_size;
+pub const font_line_height = atlas_def.ascent + atlas_def.descent;
+pub const font_line_spacing = 1.0;
+pub const font_ascent = atlas_def.ascent;
+pub const font_descent = atlas_def.descent;
 
 pub const Glyph = struct {
     uv_min: math.Vec2,
     uv_max: math.Vec2,
     size: math.Vec2,
+    offset: math.Vec2,
     advance: f32,
 };
 
 const Atlas = @This();
 
-width: u32,
-height: u32,
-pixels: []u8,
+image: tga.Image,
 
 glyphs: []Glyph,
-glyph_lookup: []usize, // ascii to glyph index
+glyph_lookup: GlyphLookup,
+fallback_index: usize,
 
 pub fn create(gpa: Allocator) !*Atlas {
-    var pixels = try gpa.alloc(u8, atlas_width * atlas_height);
-    errdefer gpa.free(pixels);
-    @memset(pixels, 0);
+    const image = try core.tga.readFromMemory(gpa, atlas_data);
+    errdefer image.deinit(gpa);
 
-    // (0, 0) is used for solids
-    pixels[0] = 255;
+    assert(image.width == atlas_def.atlas_size[0]);
+    assert(image.height == atlas_def.atlas_size[1]);
 
-    var glyphs = try gpa.alloc(Glyph, glyph_count);
+    var glyphs = try gpa.alloc(Glyph, atlas_def.glyphs.len);
     errdefer gpa.free(glyphs);
 
-    var glyph_idx: usize = 0;
+    var glyph_lookup: GlyphLookup = .init(gpa);
+    errdefer glyph_lookup.deinit();
 
-    const glyph_lookup = try gpa.alloc(usize, ascii_count);
-    @memset(glyph_lookup, 0);
+    var fallback_index: ?usize = null;
 
-    // Fallback
-    glyphs[glyph_idx] = allocGlyph(pixels, 0, fallback_bitmap);
-    glyph_idx += 1;
+    inline for (0.., atlas_def.glyphs) |i, glyph_def| {
+        glyphs[i] = .{
+            .uv_min = glyph_def.uv_min,
+            .uv_max = glyph_def.uv_max,
+            .size = glyph_def.size,
+            .offset = glyph_def.offset,
+            .advance = glyph_def.advance,
+        };
 
-    for (glyph_bitmaps) |entry| {
-        const cp, const bitmap = entry;
+        try glyph_lookup.putNoClobber(glyph_def.codepoint, i);
 
-        glyphs[glyph_idx] = allocGlyph(pixels, glyph_idx, bitmap);
-        glyph_lookup[cp] = glyph_idx;
-        glyph_idx += 1;
+        if (glyph_def.codepoint == atlas_def.default_codepoint) {
+            fallback_index = i;
+        }
+    }
+
+    if (fallback_index == null) {
+        return error.MissingFallbackGlyph;
     }
 
     const self = try gpa.create(Atlas);
     self.* = .{
-        .width = atlas_width,
-        .height = atlas_height,
-        .pixels = pixels,
+        .image = image,
         .glyphs = glyphs,
         .glyph_lookup = glyph_lookup,
+        .fallback_index = fallback_index.?,
     };
     return self;
 }
 
 pub fn destroy(self: *Atlas, gpa: Allocator) void {
+    self.glyph_lookup.deinit();
+    self.image.deinit(gpa);
     gpa.free(self.glyphs);
-    gpa.free(self.glyph_lookup);
-    gpa.free(self.pixels);
     gpa.destroy(self);
 }
 
-pub fn lookup(self: *const Atlas, cp: u8) Glyph {
-    return self.glyphs[self.glyph_lookup[std.ascii.toUpper(cp)]];
+pub fn lookup(self: *const Atlas, cp: u21) Glyph {
+    return self.glyphs[self.glyph_lookup.get(@intCast(cp)) orelse self.fallback_index];
 }
 
-fn allocGlyph(pixels: []u8, idx: usize, bitmap: []const u8) Glyph {
-    const col = idx % columns;
-    const row = idx / columns;
+pub fn measureText(self: *const Atlas, text: []const u8, options: TextOptions) math.Vec2 {
+    const pixel_scale = options.size / font_glyph_height;
+    const line_height = font_line_height * pixel_scale;
+    const line_spacing = font_line_spacing * pixel_scale;
 
-    const base_x = col * cell_width + padding;
-    const base_y = row * cell_height + padding;
+    var line_width: f32 = 0.0;
+    var max_width: f32 = 0.0;
+    var line_count: usize = 1;
 
-    for (0.., bitmap) |y, mask| {
-        for (0..font_glyph_width) |x| {
-            const bit = (mask >> @intCast(font_glyph_width - 1 - x)) & 0x1;
-            const px = base_x + x;
-            const py = base_y + y;
+    const view = std.unicode.Utf8View.init(text) catch @panic("invalid utf-8 string");
 
-            pixels[py * atlas_width + px] = if (bit == 1) 255 else 0;
+    var it = view.iterator();
+    while (it.nextCodepoint()) |cp| {
+        if (cp == '\n') {
+            max_width = @max(max_width, line_width);
+            line_width = 0.0;
+            line_count += 1;
+            continue;
         }
+
+        const glyph = self.lookup(cp);
+        line_width += glyph.advance * pixel_scale;
     }
 
-    const uv_min: math.Vec2 = .{
-        @as(f32, @floatFromInt(base_x)) * inv_atlas_width,
-        @as(f32, @floatFromInt(base_y)) * inv_atlas_height,
-    };
-    const uv_max: math.Vec2 = .{
-        @as(f32, @floatFromInt(base_x + font_glyph_width)) * inv_atlas_width,
-        @as(f32, @floatFromInt(base_y + font_glyph_height)) * inv_atlas_height,
-    };
+    max_width = @max(max_width, line_width);
+
+    const height = line_height * @as(f32, @floatFromInt(line_count)) +
+        line_spacing * @as(f32, @floatFromInt(line_count - 1));
 
     return .{
-        .uv_min = uv_min,
-        .uv_max = uv_max,
-        .size = .{
-            font_glyph_width,
-            font_glyph_height,
-        },
-        .advance = font_glyph_advance,
+        max_width,
+        height,
     };
 }
-
-const GlyphBitmap = struct {
-    u8,
-    []const u8,
-};
-
-const glyph_bitmaps = [_]GlyphBitmap{
-    .{ 'A', &.{ 0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001 } },
-    .{ 'B', &.{ 0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110 } },
-    .{ 'C', &.{ 0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110 } },
-    .{ 'D', &.{ 0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110 } },
-    .{ 'E', &.{ 0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111 } },
-    .{ 'F', &.{ 0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000 } },
-    .{ 'G', &.{ 0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110 } },
-    .{ 'H', &.{ 0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001 } },
-    .{ 'I', &.{ 0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111 } },
-    .{ 'J', &.{ 0b11111, 0b00010, 0b00010, 0b00010, 0b10010, 0b10010, 0b01100 } },
-    .{ 'K', &.{ 0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001 } },
-    .{ 'L', &.{ 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111 } },
-    .{ 'M', &.{ 0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001 } },
-    .{ 'N', &.{ 0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001 } },
-    .{ 'O', &.{ 0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110 } },
-    .{ 'P', &.{ 0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000 } },
-    .{ 'Q', &.{ 0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101 } },
-    .{ 'R', &.{ 0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001 } },
-    .{ 'S', &.{ 0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110 } },
-    .{ 'T', &.{ 0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100 } },
-    .{ 'U', &.{ 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110 } },
-    .{ 'V', &.{ 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100 } },
-    .{ 'W', &.{ 0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b10101, 0b01010 } },
-    .{ 'X', &.{ 0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001 } },
-    .{ 'Y', &.{ 0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100 } },
-    .{ 'Z', &.{ 0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111 } },
-    .{ '0', &.{ 0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110 } },
-    .{ '1', &.{ 0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110 } },
-    .{ '2', &.{ 0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111 } },
-    .{ '3', &.{ 0b11110, 0b00001, 0b00001, 0b00110, 0b00001, 0b00001, 0b11110 } },
-    .{ '4', &.{ 0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010 } },
-    .{ '5', &.{ 0b11111, 0b10000, 0b10000, 0b11110, 0b00001, 0b00001, 0b11110 } },
-    .{ '6', &.{ 0b01110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110 } },
-    .{ '7', &.{ 0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000 } },
-    .{ '8', &.{ 0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110 } },
-    .{ '9', &.{ 0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110 } },
-    .{ ' ', &.{ 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000 } },
-    .{ '!', &.{ 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00000, 0b00100 } },
-    .{ '?', &.{ 0b01110, 0b10001, 0b00001, 0b00110, 0b00100, 0b00000, 0b00100 } },
-    .{ '%', &.{ 0b11001, 0b11010, 0b00100, 0b01000, 0b10011, 0b00011, 0b00000 } },
-    .{ '#', &.{ 0b01010, 0b01010, 0b11111, 0b01010, 0b11111, 0b01010, 0b01010 } },
-    .{ '.', &.{ 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00100 } },
-    .{ ',', &.{ 0b00000, 0b00000, 0b00000, 0b00000, 0b00100, 0b00100, 0b01000 } },
-    .{ '-', &.{ 0b00000, 0b00000, 0b00000, 0b01110, 0b00000, 0b00000, 0b00000 } },
-    .{ '_', &.{ 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11111 } },
-    .{ ':', &.{ 0b00000, 0b00100, 0b00000, 0b00000, 0b00000, 0b00100, 0b00000 } },
-    .{ '\'', &.{ 0b00100, 0b00100, 0b01000, 0b00000, 0b00000, 0b00000, 0b00000 } },
-    .{ '"', &.{ 0b01010, 0b01010, 0b10100, 0b00000, 0b00000, 0b00000, 0b00000 } },
-    .{ '(', &.{ 0b00100, 0b01000, 0b10000, 0b10000, 0b10000, 0b01000, 0b00100 } },
-    .{ ')', &.{ 0b00100, 0b00010, 0b00001, 0b00001, 0b00001, 0b00010, 0b00100 } },
-    .{ '{', &.{ 0b01100, 0b01000, 0b01000, 0b11000, 0b01000, 0b01000, 0b01100 } },
-    .{ '}', &.{ 0b00110, 0b00010, 0b00010, 0b00011, 0b00010, 0b00010, 0b00110 } },
-    .{ '[', &.{ 0b11100, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11100 } },
-    .{ ']', &.{ 0b01110, 0b00010, 0b00010, 0b00010, 0b00010, 0b00010, 0b01110 } },
-    .{ '<', &.{ 0b00010, 0b00100, 0b01000, 0b00100, 0b00010, 0b00000, 0b00000 } },
-    .{ '>', &.{ 0b01000, 0b00100, 0b00010, 0b00100, 0b01000, 0b00000, 0b00000 } },
-    .{ '/', &.{ 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b00000, 0b00000 } },
-    .{ '\\', &.{ 0b10000, 0b01000, 0b00100, 0b00010, 0b00001, 0b00000, 0b00000 } },
-    .{ '+', &.{ 0b00100, 0b00100, 0b11111, 0b00100, 0b00100, 0b00000, 0b00000 } },
-    .{ '*', &.{ 0b10101, 0b01110, 0b00100, 0b01110, 0b10101, 0b00000, 0b00000 } },
-    .{ '|', &.{ 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100 } },
-    .{ '^', &.{ 0b00100, 0b01010, 0b10001, 0b00000, 0b00000, 0b00000, 0b00000 } },
-    .{ ';', &.{ 0b00000, 0b00100, 0b00000, 0b00000, 0b00100, 0b00100, 0b01000 } },
-};
-
-const fallback_bitmap: []const u8 = &.{ 0b11111, 0b11111, 0b11111, 0b11111, 0b11111, 0b11111, 0b11111 };

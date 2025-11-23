@@ -72,7 +72,7 @@ pub const Color = packed struct(u32) {
 
 pub const TextOptions = struct {
     color: ?Color = null,
-    size: f32 = 18.0,
+    size: f32 = 22.0,
 };
 
 pub const DrawVertex = struct {

@@ -64,6 +64,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    gui_mod.addImport("core", core_mod);
     gui_mod.addImport("math", math_mod);
 
     const gpu_mod = b.addModule("gpu", .{

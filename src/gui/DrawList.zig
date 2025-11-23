@@ -85,23 +85,26 @@ pub fn drawText(
     size: f32,
 ) void {
     const pixel_scale = size / Atlas.font_glyph_height;
-    const line_advance = size + Atlas.font_line_spacing;
+    const line_advance = (Atlas.font_line_height + Atlas.font_line_spacing) * pixel_scale;
 
     var cursor_x = origin[0];
-    var cursor_y = origin[1];
+    var baseline = origin[1] + Atlas.font_ascent * pixel_scale;
 
-    for (text) |cp| {
+    const view = std.unicode.Utf8View.init(text) catch @panic("invalid utf-8 string");
+
+    var it = view.iterator();
+    while (it.nextCodepoint()) |cp| {
         if (cp == '\n') {
             cursor_x = origin[0];
-            cursor_y += line_advance;
+            baseline += line_advance;
             continue;
         }
 
         const glyph = self.atlas.lookup(cp);
         self.drawRect(
             .{
-                .x = cursor_x,
-                .y = cursor_y,
+                .x = cursor_x + glyph.offset[0] * pixel_scale,
+                .y = baseline + glyph.offset[1] * pixel_scale,
                 .width = glyph.size[0] * pixel_scale,
                 .height = glyph.size[1] * pixel_scale,
             },

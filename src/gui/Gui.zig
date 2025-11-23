@@ -424,7 +424,7 @@ pub fn nextPosition(self: *Gui) math.Vec2 {
 pub fn label(self: *Gui, text: []const u8, options: TextOptions) void {
     const arena_text = self.string_arena.allocator().dupe(u8, text) catch @panic("oom");
 
-    const size = measureText(self, arena_text, options);
+    const size = self.atlas.measureText(arena_text, options);
 
     const parent = self.panel_stack.top() orelse @panic("no parent");
     const position = parent.place(size);
@@ -446,7 +446,7 @@ pub fn labelFmt(self: *Gui, comptime fmt: []const u8, args: anytype, options: Te
         args,
     ) catch @panic("oom");
 
-    const size = measureText(self, text, options);
+    const size = self.atlas.measureText(text, options);
 
     const parent = self.panel_stack.top() orelse @panic("no parent");
     const position = parent.place(size);
@@ -470,7 +470,7 @@ pub fn button(self: *Gui, text: []const u8, options: ButtonOptions) bool {
         self.style.button_padding[0] * 2.0,
         self.style.button_padding[1] * 2.0,
     };
-    const text_size = measureText(self, arena_text, options.text) + padding;
+    const text_size = self.atlas.measureText(arena_text, options.text) + padding;
     const layout_size: math.Vec2 = .{
         @max(text_size[0], options.min_width orelse 0.0),
         text_size[1],
@@ -542,7 +542,7 @@ pub fn dropdown(
     // Fit the largest string
     var text_size: math.Vec2 = .{ options.min_width orelse 0.0, options.text.size };
     for (items) |entry| {
-        const entry_size = self.measureText(entry, options.text);
+        const entry_size = self.atlas.measureText(entry, options.text);
         text_size = .{
             @max(text_size[0], entry_size[0]),
             @max(text_size[1], entry_size[1]),
@@ -974,32 +974,6 @@ pub fn getDrawData(self: *const Gui) DrawData {
         .display_size = self.display_size,
         .vertices = self.draw_list.vertices.items,
         .indices = self.draw_list.indices.items,
-    };
-}
-
-pub fn measureText(self: *const Gui, text: []const u8, options: TextOptions) math.Vec2 {
-    const pixel_scale = options.size / Atlas.font_glyph_height;
-    const line_advance = options.size + Atlas.font_line_spacing;
-
-    var line_width: f32 = 0.0;
-    var max_width: f32 = 0.0;
-    var line_count: f32 = 1;
-
-    for (text) |cp| {
-        if (cp == '\n') {
-            max_width = @max(max_width, line_width);
-            line_width = 0.0;
-            line_count += 1;
-            continue;
-        }
-
-        const glyph = self.atlas.lookup(cp);
-        line_width += glyph.advance * pixel_scale;
-    }
-
-    return .{
-        @max(max_width, line_width),
-        options.size * line_count + line_advance * (line_count - 1.0),
     };
 }
 
