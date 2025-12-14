@@ -10,12 +10,16 @@ const Bindings = enum(u32) {
     sampled_image = 0,
     storage_image = 1,
     sampler = 2,
+    storage_buffer = 3,
+    uniform_buffer = 4,
 };
 
 const Sizes = struct {
     sampled_images: u32 = 32,
     storage_images: u32 = 32,
     samplers: u32 = 32,
+    storage_buffers: u32 = 32,
+    uniform_buffers: u32 = 32,
 };
 
 ctx: *Gpu,
@@ -31,6 +35,8 @@ pub fn init(ctx: *Gpu, sizes: Sizes) !DescriptorHeap {
         .{ .type = .sampled_image, .descriptor_count = sizes.sampled_images },
         .{ .type = .storage_image, .descriptor_count = sizes.storage_images },
         .{ .type = .sampler, .descriptor_count = sizes.samplers },
+        .{ .type = .storage_buffer, .descriptor_count = sizes.storage_buffers },
+        .{ .type = .uniform_buffer, .descriptor_count = sizes.uniform_buffers },
     };
 
     const pool_info: vk.DescriptorPoolCreateInfo = .{
@@ -66,8 +72,24 @@ pub fn init(ctx: *Gpu, sizes: Sizes) !DescriptorHeap {
             .stage_flags = .fromInt(0x7fff_ffff),
             .p_immutable_samplers = null,
         },
+        .{
+            .binding = @intFromEnum(Bindings.storage_buffer),
+            .descriptor_type = .storage_buffer,
+            .descriptor_count = sizes.storage_buffers,
+            .stage_flags = .fromInt(0x7fff_ffff),
+            .p_immutable_samplers = null,
+        },
+        .{
+            .binding = @intFromEnum(Bindings.uniform_buffer),
+            .descriptor_type = .uniform_buffer,
+            .descriptor_count = sizes.uniform_buffers,
+            .stage_flags = .fromInt(0x7fff_ffff),
+            .p_immutable_samplers = null,
+        },
     };
     const binding_flags = [_]vk.DescriptorBindingFlags{
+        .{ .partially_bound_bit = true, .update_after_bind_bit = true },
+        .{ .partially_bound_bit = true, .update_after_bind_bit = true },
         .{ .partially_bound_bit = true, .update_after_bind_bit = true },
         .{ .partially_bound_bit = true, .update_after_bind_bit = true },
         .{ .partially_bound_bit = true, .update_after_bind_bit = true },
@@ -192,6 +214,66 @@ pub fn putSampler(
         .descriptor_type = .sampler,
         .p_image_info = @ptrCast(&sampler_info),
         .p_buffer_info = &.{undefined},
+        .p_texel_buffer_view = &.{undefined},
+    };
+
+    self.ctx.device.updateDescriptorSets(1, @ptrCast(&write), 0, null);
+}
+
+pub fn putStorageBuffer(
+    self: *DescriptorHeap,
+    index: u32,
+    buffer: vk.Buffer,
+    size: vk.DeviceSize,
+) void {
+    if (index >= self.sizes.storage_buffers) {
+        @panic("Storage buffer descriptor heap full");
+    }
+
+    const buffer_info: vk.DescriptorBufferInfo = .{
+        .buffer = buffer,
+        .offset = 0,
+        .range = size,
+    };
+
+    const write: vk.WriteDescriptorSet = .{
+        .dst_set = self.set,
+        .dst_binding = @intFromEnum(Bindings.storage_buffer),
+        .dst_array_element = index,
+        .descriptor_count = 1,
+        .descriptor_type = .storage_buffer,
+        .p_image_info = &.{undefined},
+        .p_buffer_info = @ptrCast(&buffer_info),
+        .p_texel_buffer_view = &.{undefined},
+    };
+
+    self.ctx.device.updateDescriptorSets(1, @ptrCast(&write), 0, null);
+}
+
+pub fn putUniformBuffer(
+    self: *DescriptorHeap,
+    index: u32,
+    buffer: vk.Buffer,
+    size: vk.DeviceSize,
+) void {
+    if (index >= self.sizes.uniform_buffers) {
+        @panic("Uniform buffer descriptor heap full");
+    }
+
+    const buffer_info: vk.DescriptorBufferInfo = .{
+        .buffer = buffer,
+        .offset = 0,
+        .range = size,
+    };
+
+    const write: vk.WriteDescriptorSet = .{
+        .dst_set = self.set,
+        .dst_binding = @intFromEnum(Bindings.uniform_buffer),
+        .dst_array_element = index,
+        .descriptor_count = 1,
+        .descriptor_type = .uniform_buffer,
+        .p_image_info = &.{undefined},
+        .p_buffer_info = @ptrCast(&buffer_info),
         .p_texel_buffer_view = &.{undefined},
     };
 

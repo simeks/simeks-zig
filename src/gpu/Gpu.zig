@@ -313,6 +313,10 @@ pub fn createBuffer(self: *Gpu, desc: *const root.BufferDesc) !Buffer {
         .info = desc.*,
     });
 
+    if (desc.usage.uniform) {
+        self.descriptor_heap.putUniformBuffer(handle.index, vk_buffer, desc.size);
+    }
+
     return handle;
 }
 pub fn releaseBuffer(self: *Gpu, handle: Buffer) void {
@@ -1115,6 +1119,7 @@ fn createDevice(instance: Instance, candidate: DeviceCandidate, allocator: Alloc
     const descriptor_indexing_feature: vk.PhysicalDeviceDescriptorIndexingFeatures = .{
         .p_next = @constCast(&synchronization_2_feature),
         .descriptor_binding_storage_buffer_update_after_bind = vk.TRUE,
+        .descriptor_binding_uniform_buffer_update_after_bind = vk.TRUE,
         .descriptor_binding_sampled_image_update_after_bind = vk.TRUE,
         .descriptor_binding_storage_image_update_after_bind = vk.TRUE,
         .descriptor_binding_partially_bound = vk.TRUE,
