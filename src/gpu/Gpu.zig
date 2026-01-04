@@ -240,9 +240,9 @@ pub fn destroy(self: *Gpu) void {
     self.gpu_allocator.deinit();
 
     destroyDevice(self.allocator, self.device);
-    if (is_debug) {
+    if (self.debug_messenger) |msg| {
         self.instance.destroyDebugUtilsMessengerEXT(
-            self.debug_messenger.?,
+            msg,
             null,
         );
     }
