@@ -45,6 +45,9 @@ pub fn roll(q: Quat) f32 {
     const x = q[3] * q[3] + q[0] * q[0] - q[1] * q[1] - q[2] * q[2];
     return std.math.atan2(y, x);
 }
+pub fn conjugate(q: Quat) Quat {
+    return .{ -q[0], -q[1], -q[2], q[3] };
+}
 
 test "pitch yaw roll" {
     const expectApproxEqAbs = std.testing.expectApproxEqAbs;
