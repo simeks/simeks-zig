@@ -31,6 +31,12 @@ pub const DebugTimer = struct {
             @as(f64, @floatFromInt(self.t.read())) / std.time.ns_per_ms,
         });
     }
+    pub fn lap(self: *DebugTimer) void {
+        std.debug.print("{s}: {d} ms\n", .{
+            self.name,
+            @as(f64, @floatFromInt(self.t.lap())) / std.time.ns_per_ms,
+        });
+    }
 };
 
 test {
