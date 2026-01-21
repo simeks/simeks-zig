@@ -1000,6 +1000,10 @@ fn createInstance(alloc: Allocator, base: vk.BaseWrapper) !Instance {
             assert(hasExtension(available, vk.extensions.khr_win_32_surface.name));
             try exts.append(alloc, vk.extensions.khr_win_32_surface.name);
         },
+        .macos => {
+            assert(hasExtension(available, vk.extensions.ext_metal_surface.name));
+            try exts.append(alloc, vk.extensions.ext_metal_surface.name);
+        },
         else => @compileError("not implemented"),
     }
 
