@@ -290,3 +290,38 @@ pub fn vkCompareOp(compare_op: root.CompareOp) vk.CompareOp {
         .always => .always,
     };
 }
+
+pub fn vkIndexType(index_type: root.IndexType) vk.IndexType {
+    return switch (index_type) {
+        .uint16 => .uint16,
+        .uint32 => .uint32,
+    };
+}
+
+pub fn vkAccelerationStructureType(t: root.AccelerationStructureType) vk.AccelerationStructureTypeKHR {
+    return switch (t) {
+        .bottom_level => .bottom_level_khr,
+        .top_level => .top_level_khr,
+    };
+}
+
+pub fn vkRayTracingShaderStage(stage: root.RayTracingShaderStage) vk.ShaderStageFlags {
+    return switch (stage) {
+        .raygen => .{ .raygen_bit_khr = true },
+        .miss => .{ .miss_bit_khr = true },
+        .closest_hit => .{ .closest_hit_bit_khr = true },
+        .any_hit => .{ .any_hit_bit_khr = true },
+        .intersection => .{ .intersection_bit_khr = true },
+        .callable => .{ .callable_bit_khr = true },
+    };
+}
+
+pub fn vkBuildFlags(flags: root.AccelerationStructureBuildFlags) vk.BuildAccelerationStructureFlagsKHR {
+    return .{
+        .allow_update_bit_khr = flags.allow_update,
+        .allow_compaction_bit_khr = flags.allow_compaction,
+        .prefer_fast_trace_bit_khr = flags.prefer_fast_trace,
+        .prefer_fast_build_bit_khr = flags.prefer_fast_build,
+        .low_memory_bit_khr = flags.low_memory,
+    };
+}

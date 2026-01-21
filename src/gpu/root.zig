@@ -19,6 +19,9 @@ pub const Sampler = Pools.Sampler;
 pub const Shader = Pools.Shader;
 pub const RenderPipeline = Pools.RenderPipeline;
 pub const ComputePipeline = Pools.ComputePipeline;
+pub const RayTracingPipeline = Pools.RayTracingPipeline;
+pub const AccelerationStructure = Pools.AccelerationStructure;
+pub const ShaderBindingTable = Pools.ShaderBindingTable;
 
 const command = @import("command.zig");
 pub const CommandEncoder = command.CommandEncoder;
@@ -104,7 +107,8 @@ pub const BufferUsage = packed struct(u32) {
     uniform: bool = false,
     storage: bool = false,
     indirect: bool = false,
-    _padding: u27 = 0,
+    acceleration_structure_build_input: bool = false,
+    _padding: u26 = 0,
 };
 
 pub const MemoryType = enum(u32) {
@@ -373,6 +377,140 @@ pub const ComputePipelineDesc = struct {
     push_constant_size: u32 = 0,
 };
 
+pub const RayTracingShaderStage = enum(u32) {
+    raygen = 0,
+    miss = 1,
+    closest_hit = 2,
+    any_hit = 3,
+    intersection = 4,
+    callable = 5,
+};
+
+pub const RayTracingShader = struct {
+    stage: RayTracingShaderStage,
+    shader: Shader,
+};
+
+pub const ShaderGroupType = enum(u32) {
+    general = 0,
+    triangles_hit = 1,
+    procedural_hit = 2,
+    callable = 3,
+};
+
+pub const ShaderGroupDesc = struct {
+    type: ShaderGroupType,
+    general: ?u32 = null,
+    closest_hit: ?u32 = null,
+    any_hit: ?u32 = null,
+    intersection: ?u32 = null,
+};
+
+pub const RayTracingPipelineDesc = struct {
+    label: ?[:0]const u8 = null,
+
+    shaders: []const RayTracingShader,
+    groups: []const ShaderGroupDesc,
+
+    max_ray_recursion_depth: u32 = 1,
+    payload_size: u32 = 0,
+    attribute_size: u32 = 8,
+
+    push_constant_size: u32 = 0,
+};
+
+pub const AccelerationStructureType = enum(u32) {
+    bottom_level = 0,
+    top_level = 1,
+};
+
+pub const AccelerationStructureBuildMode = enum(u32) {
+    build = 0,
+    update = 1,
+};
+
+pub const AccelerationStructureBuildFlags = packed struct(u32) {
+    allow_update: bool = false,
+    allow_compaction: bool = false,
+    prefer_fast_trace: bool = true,
+    prefer_fast_build: bool = false,
+    low_memory: bool = false,
+    _padding: u27 = 0,
+};
+
+pub const IndexType = enum(u32) {
+    uint16 = 0,
+    uint32 = 1,
+};
+
+pub const AccelerationStructureGeometry = union(enum) {
+    triangles: struct {
+        vertex_buffer: Buffer,
+        vertex_offset: u64 = 0,
+        vertex_stride: u32,
+        vertex_format: Format = .rgb32_float,
+        index_buffer: ?Buffer = null,
+        index_offset: u64 = 0,
+        index_type: IndexType = .uint32,
+        transform_buffer: ?Buffer = null,
+        transform_offset: u64 = 0,
+    },
+    instances: struct {
+        buffer: Buffer,
+        offset: u64 = 0,
+        stride: u32 = 64,
+    },
+};
+
+pub const AccelerationStructureBuildRange = struct {
+    primitive_count: u32,
+    primitive_offset: u32 = 0,
+    first_vertex: u32 = 0,
+    transform_offset: u32 = 0,
+};
+
+pub const AccelerationStructureBuildDesc = struct {
+    type: AccelerationStructureType,
+    mode: AccelerationStructureBuildMode = .build,
+    flags: AccelerationStructureBuildFlags = .{},
+    geometries: []const AccelerationStructureGeometry,
+    ranges: []const AccelerationStructureBuildRange,
+    src: ?AccelerationStructure = null,
+};
+
+pub const AccelerationStructureDesc = struct {
+    label: ?[:0]const u8 = null,
+    size: u64,
+    type: AccelerationStructureType,
+};
+
+pub const AccelerationStructureSizes = struct {
+    acceleration_size: u64,
+    build_scratch_size: u64,
+    update_scratch_size: u64,
+};
+
+pub const AccelerationStructureCopyMode = enum(u32) {
+    clone = 0,
+    compact = 1,
+};
+
+pub const ShaderBindingTableRegion = struct {
+    offset: u64 = 0,
+    stride: u64 = 0,
+    count: u32 = 0,
+};
+
+pub const ShaderBindingTableDesc = struct {
+    label: ?[:0]const u8 = null,
+    pipeline: RayTracingPipeline,
+    buffer: Buffer,
+    raygen: ShaderBindingTableRegion,
+    miss: ShaderBindingTableRegion,
+    hit: ShaderBindingTableRegion,
+    callable: ShaderBindingTableRegion = .{},
+};
+
 pub const LoadOp = enum(u32) {
     undefined = 0,
     load = 1,
@@ -452,9 +590,21 @@ pub const BufferBarrier = struct {
     },
 };
 
+pub const AccelerationStructureAccess = enum(u32) {
+    build,
+    read,
+};
+
+pub const AccelerationStructureBarrier = struct {
+    accel: AccelerationStructure,
+    before: AccelerationStructureAccess,
+    after: AccelerationStructureAccess,
+};
+
 pub const BarrierGroup = struct {
     textures: []const TextureBarrier = &.{},
     buffers: []const BufferBarrier = &.{},
+    acceleration_structures: []const AccelerationStructureBarrier = &.{},
 };
 
 pub const CopyBufferRegion = struct {
