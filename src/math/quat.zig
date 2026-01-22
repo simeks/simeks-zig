@@ -49,6 +49,13 @@ pub fn conjugate(q: Quat) Quat {
     return .{ -q[0], -q[1], -q[2], q[3] };
 }
 
+pub fn fromAxisAngle(axis: Vec3, angle: f32) Quat {
+    const half_angle = angle * 0.5;
+    const s = @sin(half_angle);
+    const c = @cos(half_angle);
+    return .{ axis[0] * s, axis[1] * s, axis[2] * s, c };
+}
+
 test "pitch yaw roll" {
     const expectApproxEqAbs = std.testing.expectApproxEqAbs;
 

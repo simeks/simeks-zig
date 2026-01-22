@@ -7,10 +7,12 @@ pub const Vec4 = vec.Vec4;
 pub const shuffle = vec.shuffle;
 pub const swizzle = vec.swizzle;
 pub const normalize = vec.normalize;
+pub const length = vec.length;
 pub const toVec4 = vec.toVec4;
 pub const toVec3 = vec.toVec3;
 
 pub const mat = @import("mat.zig");
+pub const Mat3 = mat.Mat3;
 pub const Mat4 = mat.Mat4;
 
 pub const quat = @import("quat.zig");

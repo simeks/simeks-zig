@@ -10,6 +10,21 @@ const Vec3 = vec.Vec3;
 const Vec4 = vec.Vec4;
 const Quat = @import("quat.zig").Quat;
 
+pub const Mat3 = extern struct {
+    pub const T = f32;
+    const Column = @Vector(3, f32);
+
+    cols: [3]Column,
+
+    pub const identity: Mat3 = .{
+        .cols = .{
+            .{ 1.0, 0.0, 0.0 },
+            .{ 0.0, 1.0, 0.0 },
+            .{ 0.0, 0.0, 1.0 },
+        },
+    };
+};
+
 pub const Mat4 = extern struct {
     pub const T = f32;
 
