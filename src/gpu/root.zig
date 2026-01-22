@@ -7,7 +7,7 @@ const StringTable = @import("core").StringTable;
 pub const frames_in_flight = 2;
 pub const max_color_attachments = 4;
 pub const max_descriptor_sets = 4;
-pub const max_num_passes = 32; // Need to know for query pool
+pub const max_num_passes = 64; // Need to know for query pool
 
 pub const Gpu = @import("Gpu.zig");
 
