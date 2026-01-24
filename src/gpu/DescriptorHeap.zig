@@ -15,11 +15,11 @@ const Bindings = enum(u32) {
 };
 
 const Sizes = struct {
-    sampled_images: u32 = 32,
-    storage_images: u32 = 32,
-    samplers: u32 = 32,
-    storage_buffers: u32 = 32,
-    uniform_buffers: u32 = 32,
+    sampled_images: u32 = 64,
+    storage_images: u32 = 64,
+    samplers: u32 = 64,
+    storage_buffers: u32 = 64,
+    uniform_buffers: u32 = 64,
 };
 
 ctx: *Gpu,
