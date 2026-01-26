@@ -595,61 +595,6 @@ pub fn swapHandles(self: *Gpu, handle1: anytype, handle2: @TypeOf(handle1)) void
     }
 }
 
-/// Reloads a shader, requires call to reloadPipelines for changes to actually
-/// reach pipelines
-pub fn reloadShader(self: *Gpu, handle: Shader, desc: *const root.ShaderDesc) !void {
-    if (self.pools.shaders.getFieldPtr(handle, .module)) |module| {
-        const vk_shader = try self.device.createShaderModule(
-            &.{
-                .code_size = desc.data.len,
-                .p_code = @ptrCast(@alignCast(desc.data.ptr)),
-            },
-            null,
-        );
-
-        if (desc.label) |label| {
-            self.debugSetName(vk_shader, label);
-        }
-
-        self.destroy_queue.push(module.*);
-        module.* = vk_shader;
-    } else {
-        return error.ShaderNotFound;
-    }
-}
-
-/// Reloads pipelines
-/// TODO: Put this directly in reloadShader?
-pub fn reloadPipelines(self: *Gpu) !void {
-    log.debug("Reloading GPU pipelines", .{});
-
-    var render_it = self.pools.render_pipelines.iterator();
-    while (render_it.next()) |handle| {
-        if (self.pools.render_pipelines.get(handle)) |info| {
-            const new_pipeline = try self.createVkRenderPipeline(
-                info.layout,
-                &info.desc,
-            );
-
-            self.destroy_queue.push(info.pipeline);
-            self.pools.render_pipelines.getFieldPtr(handle, .pipeline).?.* = new_pipeline;
-        }
-    }
-
-    var compute_it = self.pools.compute_pipelines.iterator();
-    while (compute_it.next()) |handle| {
-        if (self.pools.compute_pipelines.get(handle)) |info| {
-            const new_pipeline = try self.createVkComputePipeline(
-                info.layout,
-                &info.desc,
-            );
-
-            self.destroy_queue.push(info.pipeline);
-            self.pools.compute_pipelines.getFieldPtr(handle, .pipeline).?.* = new_pipeline;
-        }
-    }
-}
-
 pub fn createRenderPipeline(
     self: *Gpu,
     desc: *const root.RenderPipelineDesc,
