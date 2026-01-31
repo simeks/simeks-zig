@@ -1,0 +1,69 @@
+#version 460
+#extension GL_EXT_ray_tracing : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+#include "rt_bindless.h"
+#include "rt_shared.h"
+
+layout(push_constant, scalar) uniform _pc {
+    RtPushConstants pc;
+};
+
+// Payload: xyz = color, w = recursion depth
+layout(location = 0) rayPayloadEXT vec4 payload;
+
+void main() {
+    const uvec2 launch_id = gl_LaunchIDEXT.xy;
+    const uvec2 launch_size = gl_LaunchSizeEXT.xy;
+
+    // Pixel to NDC
+    const float aspect = float(launch_size.x) / float(launch_size.y);
+    const vec2 pixel = (vec2(launch_id) + 0.5) / vec2(launch_size);
+    const vec2 ndc = vec2((pixel.x * 2.0 - 1.0) * aspect, 1.0 - pixel.y * 2.0);
+
+    // Orbiting camera
+    const float cam_speed = 0.3;
+    const float cam_radius = 12.0;
+    const float cam_height = 4.0;
+    const float angle = pc.time * cam_speed;
+
+    const vec3 cam_pos = vec3(
+        sin(angle) * cam_radius,
+        cam_height,
+        cos(angle) * cam_radius
+    );
+    const vec3 cam_target = vec3(0.0, 0.0, 0.0);
+
+    // Camera basis
+    const vec3 forward = normalize(cam_target - cam_pos);
+    const vec3 right = normalize(cross(forward, vec3(0.0, 1.0, 0.0)));
+    const vec3 up = cross(right, forward);
+
+    // Ray direction with FOV
+    const float fov = 1.2;
+    const vec3 direction = normalize(forward * fov + right * ndc.x + up * ndc.y);
+
+    // Initialize payload with depth = 0
+    payload = vec4(0.0, 0.0, 0.0, 0.0);
+
+    traceRayEXT(
+        accel_table[pc.accel_index],
+        gl_RayFlagsOpaqueEXT,
+        0xFF,
+        0,
+        0,
+        0,
+        cam_pos,
+        0.001,
+        direction,
+        10000.0,
+        0);
+
+    // Gamma correction
+    vec3 color = pow(payload.rgb, vec3(1.0 / 2.2));
+    imageStore(image2D_wo_table[nonuniformEXT(pc.output_image)], ivec2(launch_id), vec4(color, 1.0));
+}

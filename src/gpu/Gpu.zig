@@ -5,11 +5,15 @@ const log = std.log;
 const Allocator = std.mem.Allocator;
 
 const root = @import("root.zig");
+const AccelerationStructure = root.AccelerationStructure;
+const AccelerationStructureSizes = root.AccelerationStructureSizes;
 const Buffer = root.Buffer;
 const Texture = root.Texture;
 const TextureView = root.TextureView;
 const Sampler = root.Sampler;
 const Shader = root.Shader;
+const ShaderBindingTable = root.ShaderBindingTable;
+const RayTracingPipeline = root.RayTracingPipeline;
 const RenderPipeline = root.RenderPipeline;
 const ComputePipeline = root.ComputePipeline;
 
@@ -94,6 +98,7 @@ swapchain: Swapchain,
 desired_extent: vk.Extent2D,
 
 device_limits: vk.PhysicalDeviceLimits,
+ray_tracing_props: vk.PhysicalDeviceRayTracingPipelinePropertiesKHR,
 
 pass_time_samples: std.ArrayList(root.PassTime),
 
@@ -114,10 +119,17 @@ pub fn create(allocator: Allocator, window: WindowInterface, fb_size: [2]u32) !*
     self.physical_device = candidate.physical_device;
     self.device = try createDevice(self.instance, candidate, allocator);
 
-    const device_props = self.instance.getPhysicalDeviceProperties(candidate.physical_device);
-    log.info("GPU: {s}", .{device_props.device_name});
+    var rt_props: vk.PhysicalDeviceRayTracingPipelinePropertiesKHR = std.mem.zeroes(vk.PhysicalDeviceRayTracingPipelinePropertiesKHR);
+    rt_props.s_type = .physical_device_ray_tracing_pipeline_properties_khr;
+    var props2: vk.PhysicalDeviceProperties2 = std.mem.zeroes(vk.PhysicalDeviceProperties2);
+    props2.s_type = .physical_device_properties_2;
+    props2.p_next = &rt_props;
+    self.instance.getPhysicalDeviceProperties2(candidate.physical_device, &props2);
 
-    self.device_limits = device_props.limits;
+    log.info("GPU: {s}", .{props2.properties.device_name});
+
+    self.device_limits = props2.properties.limits;
+    self.ray_tracing_props = rt_props;
 
     if (is_debug) {
         const dbg_msg_info: vk.DebugUtilsMessengerCreateInfoEXT = .{
@@ -273,9 +285,13 @@ pub fn createBuffer(self: *Gpu, desc: *const root.BufferDesc) !Buffer {
     if (desc.usage.indirect) {
         vk_usage.indirect_buffer_bit = true;
     }
+    if (desc.usage.acceleration_structure_build_input) {
+        vk_usage.acceleration_structure_build_input_read_only_bit_khr = true;
+    }
     vk_usage.transfer_src_bit = true;
     vk_usage.transfer_dst_bit = true;
     vk_usage.shader_device_address_bit = true;
+    vk_usage.shader_binding_table_bit_khr = true;
 
     const buffer_info: vk.BufferCreateInfo = .{
         .size = desc.size,
@@ -697,12 +713,323 @@ pub fn createComputePipeline(self: *Gpu, desc: *const root.ComputePipelineDesc) 
 
     return handle;
 }
+
 pub fn releaseComputePipeline(self: *Gpu, handle: ComputePipeline) void {
     if (self.pools.compute_pipelines.get(handle)) |pipeline| {
         self.destroy_queue.push(pipeline.pipeline);
         self.destroy_queue.push(pipeline.layout);
         self.pools.compute_pipelines.release(handle);
     }
+}
+
+fn vkGeometry(
+    ctx: *Gpu,
+    geom: root.AccelerationStructureGeometry,
+    max_vertex: u32,
+) !vk.AccelerationStructureGeometryKHR {
+    return switch (geom) {
+        .triangles => |tri| blk: {
+            const vb_addr = @intFromEnum(ctx.deviceAddress(tri.vertex_buffer)) + tri.vertex_offset;
+            const ib_addr: u64 = if (tri.index_buffer) |ib|
+                @intFromEnum(ctx.deviceAddress(ib)) + tri.index_offset
+            else
+                0;
+            const transform_addr: u64 = if (tri.transform_buffer) |tb|
+                @intFromEnum(ctx.deviceAddress(tb)) + tri.transform_offset
+            else
+                0;
+            break :blk .{
+                .geometry_type = .triangles_khr,
+                .geometry = .{
+                    .triangles = .{
+                        .vertex_format = conv.vkFormat(tri.vertex_format),
+                        .vertex_data = .{ .device_address = vb_addr },
+                        .vertex_stride = tri.vertex_stride,
+                        .index_type = if (tri.index_buffer) |_|
+                            conv.vkIndexType(tri.index_type)
+                        else
+                            .none_khr,
+                        .index_data = .{ .device_address = ib_addr },
+                        .transform_data = .{ .device_address = transform_addr },
+                        .max_vertex = max_vertex,
+                    },
+                },
+                .flags = .{},
+            };
+        },
+
+        .instances => |inst| blk: {
+            const addr = @intFromEnum(ctx.deviceAddress(inst.buffer)) + inst.offset;
+            break :blk .{
+                .geometry_type = .instances_khr,
+                .geometry = .{
+                    .instances = .{
+                        .array_of_pointers = vk.FALSE,
+                        .data = .{ .device_address = addr },
+                    },
+                },
+                .flags = .{},
+            };
+        },
+    };
+}
+
+pub fn getAccelerationStructureBuildSizes(
+    self: *Gpu,
+    desc: *const root.AccelerationStructureBuildDesc,
+) !AccelerationStructureSizes {
+    const arena = self.allocator;
+    var geometries: std.ArrayListUnmanaged(vk.AccelerationStructureGeometryKHR) = .{};
+    defer geometries.deinit(arena);
+    for (desc.geometries, desc.ranges) |g, r| {
+        const max_vertex = r.first_vertex + r.primitive_count * 3;
+        try geometries.append(arena, try vkGeometry(self, g, max_vertex));
+    }
+
+    var range_counts: std.ArrayListUnmanaged(u32) = .{};
+    defer range_counts.deinit(arena);
+    for (desc.ranges) |r| {
+        try range_counts.append(arena, r.primitive_count);
+    }
+
+    var build_info: vk.AccelerationStructureBuildGeometryInfoKHR = .{
+        .type = conv.vkAccelerationStructureType(desc.type),
+        .flags = conv.vkBuildFlags(desc.flags),
+        .mode = switch (desc.mode) {
+            .build => .build_khr,
+            .update => .update_khr,
+        },
+        .geometry_count = @intCast(geometries.items.len),
+        .p_geometries = geometries.items.ptr,
+        .scratch_data = .{ .device_address = 0 },
+    };
+
+    var sizes: vk.AccelerationStructureBuildSizesInfoKHR = .{
+        .acceleration_structure_size = 0,
+        .build_scratch_size = 0,
+        .update_scratch_size = 0,
+    };
+
+    self.device.getAccelerationStructureBuildSizesKHR(
+        .device_khr,
+        &build_info,
+        @ptrCast(range_counts.items.ptr),
+        &sizes,
+    );
+
+    return .{
+        .acceleration_size = sizes.acceleration_structure_size,
+        .build_scratch_size = sizes.build_scratch_size,
+        .update_scratch_size = sizes.update_scratch_size,
+    };
+}
+
+pub fn createAccelerationStructure(
+    self: *Gpu,
+    desc: *const root.AccelerationStructureDesc,
+) !AccelerationStructure {
+    const handle = try self.pools.acceleration_structures.allocate();
+    errdefer self.pools.acceleration_structures.release(handle);
+
+    const buffer_info: vk.BufferCreateInfo = .{
+        .size = desc.size,
+        .usage = .{
+            .acceleration_structure_storage_bit_khr = true,
+            .shader_device_address_bit = true,
+            .transfer_src_bit = true,
+            .transfer_dst_bit = true,
+        },
+        .sharing_mode = .exclusive,
+    };
+
+    const vk_buffer, const allocation = try self.gpu_allocator.createBuffer(
+        &buffer_info,
+        .gpu_only,
+    );
+    errdefer self.gpu_allocator.destroyBuffer(vk_buffer, allocation);
+
+    const accel_info: vk.AccelerationStructureCreateInfoKHR = .{
+        .buffer = vk_buffer,
+        .offset = 0,
+        .size = desc.size,
+        .type = conv.vkAccelerationStructureType(desc.type),
+    };
+
+    const accel_handle = try self.device.createAccelerationStructureKHR(&accel_info, null);
+    errdefer self.device.destroyAccelerationStructureKHR(accel_handle, null);
+
+    if (desc.label) |label| {
+        self.debugSetName(accel_handle, label);
+        self.debugSetName(vk_buffer, label);
+    }
+
+    self.pools.acceleration_structures.set(handle, .{
+        .handle = accel_handle,
+        .buffer = vk_buffer,
+        .allocation = allocation,
+        .size = desc.size,
+        .type = accel_info.type,
+    });
+
+    // Only TLAS can be bound to descriptors
+    if (desc.type == .top_level) {
+        self.descriptor_heap.putAccelerationStructure(handle.index, accel_handle);
+    }
+
+    return handle;
+}
+
+pub fn releaseAccelerationStructure(self: *Gpu, handle: AccelerationStructure) void {
+    if (self.pools.acceleration_structures.get(handle)) |accel| {
+        self.destroy_queue.push(.{ accel.handle, accel.buffer, accel.allocation });
+        self.pools.acceleration_structures.release(handle);
+    }
+}
+
+pub fn accelerationStructureDeviceAddress(self: *Gpu, handle: AccelerationStructure) root.DeviceAddress {
+    const accel = self.pools.acceleration_structures.get(handle) orelse
+        @panic("acceleration structure not found");
+    const addr = self.device.getAccelerationStructureDeviceAddressKHR(&.{
+        .acceleration_structure = accel.handle,
+    });
+    return @enumFromInt(addr);
+}
+
+pub fn createRayTracingPipeline(
+    self: *Gpu,
+    desc: *const root.RayTracingPipelineDesc,
+) !RayTracingPipeline {
+    const handle = try self.pools.ray_tracing_pipelines.allocate();
+    errdefer self.pools.ray_tracing_pipelines.release(handle);
+
+    const push_constant_range: vk.PushConstantRange = .{
+        .stage_flags = .fromInt(0x7fff_ffff),
+        .offset = 0,
+        .size = desc.push_constant_size,
+    };
+
+    var set_layouts_buffer: [root.max_descriptor_sets]vk.DescriptorSetLayout = undefined;
+    var set_layouts: std.ArrayList(vk.DescriptorSetLayout) = .initBuffer(&set_layouts_buffer);
+    try set_layouts.appendBounded(self.descriptor_heap.layout);
+
+    const vk_layout = try self.device.createPipelineLayout(&.{
+        .set_layout_count = @intCast(set_layouts.items.len),
+        .p_set_layouts = @ptrCast(set_layouts.items),
+        .push_constant_range_count = if (desc.push_constant_size > 0) 1 else 0,
+        .p_push_constant_ranges = if (desc.push_constant_size > 0)
+            @ptrCast(&push_constant_range)
+        else
+            null,
+    }, null);
+    errdefer self.device.destroyPipelineLayout(vk_layout, null);
+
+    var stages: std.ArrayListUnmanaged(vk.PipelineShaderStageCreateInfo) = .{};
+    defer stages.deinit(self.allocator);
+    for (desc.shaders) |s| {
+        const shader = self.pools.shaders.get(s.shader) orelse return error.InvalidShader;
+        try stages.append(self.allocator, .{
+            .stage = conv.vkRayTracingShaderStage(s.stage),
+            .module = shader.module,
+            .p_name = shader.entry.ptr,
+        });
+    }
+
+    var groups: std.ArrayListUnmanaged(vk.RayTracingShaderGroupCreateInfoKHR) = .{};
+    defer groups.deinit(self.allocator);
+    for (desc.groups) |g| {
+        var group: vk.RayTracingShaderGroupCreateInfoKHR = .{
+            .type = switch (g.type) {
+                .general => .general_khr,
+                .triangles_hit => .triangles_hit_group_khr,
+                .procedural_hit => .procedural_hit_group_khr,
+                .callable => .general_khr,
+            },
+            .general_shader = vk.SHADER_UNUSED_KHR,
+            .closest_hit_shader = vk.SHADER_UNUSED_KHR,
+            .any_hit_shader = vk.SHADER_UNUSED_KHR,
+            .intersection_shader = vk.SHADER_UNUSED_KHR,
+        };
+        if (g.general) |idx| group.general_shader = idx;
+        if (g.closest_hit) |idx| group.closest_hit_shader = idx;
+        if (g.any_hit) |idx| group.any_hit_shader = idx;
+        if (g.intersection) |idx| group.intersection_shader = idx;
+        try groups.append(self.allocator, group);
+    }
+
+    const pipeline_info: vk.RayTracingPipelineCreateInfoKHR = .{
+        .stage_count = @intCast(stages.items.len),
+        .p_stages = stages.items.ptr,
+        .group_count = @intCast(groups.items.len),
+        .p_groups = groups.items.ptr,
+        .max_pipeline_ray_recursion_depth = desc.max_ray_recursion_depth,
+        .layout = vk_layout,
+        .base_pipeline_handle = .null_handle,
+        .base_pipeline_index = -1,
+    };
+
+    var pipeline: vk.Pipeline = undefined;
+    _ = try self.device.createRayTracingPipelinesKHR(
+        .null_handle,
+        .null_handle,
+        1,
+        @ptrCast(&pipeline_info),
+        null,
+        @ptrCast(&pipeline),
+    );
+
+    if (desc.label) |label| {
+        self.debugSetName(vk_layout, label);
+        self.debugSetName(pipeline, label);
+    }
+
+    self.pools.ray_tracing_pipelines.set(handle, .{
+        .pipeline = pipeline,
+        .layout = vk_layout,
+        .desc = desc.*,
+    });
+
+    return handle;
+}
+
+pub fn releaseRayTracingPipeline(self: *Gpu, handle: RayTracingPipeline) void {
+    if (self.pools.ray_tracing_pipelines.get(handle)) |pipeline| {
+        self.destroy_queue.push(pipeline.pipeline);
+        self.destroy_queue.push(pipeline.layout);
+        self.pools.ray_tracing_pipelines.release(handle);
+    }
+}
+
+pub fn getRayTracingShaderGroupHandles(
+    self: *Gpu,
+    pipeline: RayTracingPipeline,
+    first_group: u32,
+    group_count: u32,
+    dst: []u8,
+) !void {
+    try self.device.getRayTracingShaderGroupHandlesKHR(
+        if (self.pools.ray_tracing_pipelines.get(pipeline)) |pipe|
+            pipe.pipeline
+        else
+            return error.InvalidPipeline,
+        first_group,
+        group_count,
+        dst.len,
+        dst.ptr,
+    );
+}
+
+pub fn createShaderBindingTable(
+    self: *Gpu,
+    desc: *const root.ShaderBindingTableDesc,
+) !ShaderBindingTable {
+    const handle = try self.pools.shader_binding_tables.allocate();
+    errdefer self.pools.shader_binding_tables.release(handle);
+    self.pools.shader_binding_tables.set(handle, .{ .buffer = desc.buffer, .desc = desc.* });
+    return handle;
+}
+
+pub fn releaseShaderBindingTable(self: *Gpu, handle: ShaderBindingTable) void {
+    self.pools.shader_binding_tables.release(handle);
 }
 
 pub fn uploadBuffer(self: *Gpu, handle: Buffer, data: []const u8) !void {
@@ -868,6 +1195,7 @@ pub fn debugSetName(self: *Gpu, obj: anytype, name: [:0]const u8) void {
         vk.DescriptorSet => .descriptor_set,
         vk.Framebuffer => .framebuffer,
         vk.CommandPool => .command_pool,
+        vk.AccelerationStructureKHR => .acceleration_structure_khr,
         else => @compileError("Unsupported type for debugSetName"),
     };
 
@@ -1073,10 +1401,21 @@ fn createDevice(instance: Instance, candidate: DeviceCandidate, allocator: Alloc
         .descriptor_binding_storage_image_update_after_bind = vk.TRUE,
         .descriptor_binding_partially_bound = vk.TRUE,
         .runtime_descriptor_array = vk.TRUE,
+        .shader_storage_image_array_non_uniform_indexing = vk.TRUE,
+        .shader_sampled_image_array_non_uniform_indexing = vk.TRUE,
     };
     const buffer_device_address_features: vk.PhysicalDeviceBufferDeviceAddressFeatures = .{
         .p_next = @constCast(&descriptor_indexing_feature),
         .buffer_device_address = vk.TRUE,
+    };
+    const accel_structure_features: vk.PhysicalDeviceAccelerationStructureFeaturesKHR = .{
+        .p_next = @constCast(&buffer_device_address_features),
+        .acceleration_structure = vk.TRUE,
+        .descriptor_binding_acceleration_structure_update_after_bind = vk.TRUE,
+    };
+    const ray_tracing_pipeline_features: vk.PhysicalDeviceRayTracingPipelineFeaturesKHR = .{
+        .p_next = @constCast(&accel_structure_features),
+        .ray_tracing_pipeline = vk.TRUE,
     };
 
     const queue_priority: [1]f32 = .{1};
@@ -1112,6 +1451,17 @@ fn createDevice(instance: Instance, candidate: DeviceCandidate, allocator: Alloc
     assert(hasExtension(available, vk.extensions.khr_copy_commands_2.name));
     try exts.append(allocator, vk.extensions.khr_copy_commands_2.name);
 
+    assert(hasExtension(available, vk.extensions.khr_acceleration_structure.name));
+    try exts.append(allocator, vk.extensions.khr_acceleration_structure.name);
+    assert(hasExtension(available, vk.extensions.khr_ray_tracing_pipeline.name));
+    try exts.append(allocator, vk.extensions.khr_ray_tracing_pipeline.name);
+    // Required by khr_acceleration_structure
+    assert(hasExtension(available, vk.extensions.khr_deferred_host_operations.name));
+    try exts.append(allocator, vk.extensions.khr_deferred_host_operations.name);
+    if (hasExtension(available, vk.extensions.khr_spirv_1_4.name)) {
+        try exts.append(allocator, vk.extensions.khr_spirv_1_4.name);
+    }
+
     // Not available on MoltenVK :(
     // assert(hasExtension(available, vk.extensions.khr_maintenance_6.name));
     // try exts.append(vk.extensions.khr_maintenance_6.name);
@@ -1131,7 +1481,7 @@ fn createDevice(instance: Instance, candidate: DeviceCandidate, allocator: Alloc
         .enabled_extension_count = @intCast(exts.items.len),
         .pp_enabled_extension_names = @ptrCast(exts.items),
         .p_enabled_features = &features,
-        .p_next = &buffer_device_address_features,
+        .p_next = &ray_tracing_pipeline_features,
     };
 
     const vk_device = try instance.createDevice(candidate.physical_device, &device_info, null);

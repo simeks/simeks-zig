@@ -193,15 +193,213 @@ pub const CommandEncoder = struct {
             buffer_barriers.append(arena, buffer_barrier) catch @panic("oom");
         }
 
+        var accel_barriers: std.ArrayList(vk.MemoryBarrier2) = .empty;
+        defer accel_barriers.deinit(arena);
+        for (barriers.acceleration_structures) |a| {
+            const accel_barrier = sync.accelerationBarrier(a);
+            accel_barriers.append(arena, accel_barrier) catch @panic("oom");
+        }
+
         self.ctx.device.cmdPipelineBarrier2KHR(
             self.cb,
             &.{
+                .memory_barrier_count = @intCast(accel_barriers.items.len),
+                .p_memory_barriers = @ptrCast(accel_barriers.items.ptr),
                 .buffer_memory_barrier_count = @intCast(buffer_barriers.items.len),
                 .p_buffer_memory_barriers = @ptrCast(buffer_barriers.items.ptr),
                 .image_memory_barrier_count = @intCast(image_barriers.items.len),
                 .p_image_memory_barriers = @ptrCast(image_barriers.items.ptr),
             },
         );
+    }
+
+    pub fn buildAccelerationStructure(
+        self: *CommandEncoder,
+        dst: root.AccelerationStructure,
+        desc: *const root.AccelerationStructureBuildDesc,
+        scratch: root.Buffer,
+        scratch_offset: u64,
+    ) void {
+        const arena = self.temp_arena.allocator();
+
+        const accel = self.ctx.pools.acceleration_structures.get(dst) orelse
+            @panic("acceleration structure not found");
+
+        var geometries: std.ArrayListUnmanaged(vk.AccelerationStructureGeometryKHR) = .{};
+        defer geometries.deinit(arena);
+        for (desc.geometries, desc.ranges) |g, r| {
+            const max_vertex = r.first_vertex + r.primitive_count * 3;
+            geometries.append(arena, self.toVkGeometry(g, max_vertex)) catch @panic("oom");
+        }
+
+        var ranges: std.ArrayListUnmanaged(vk.AccelerationStructureBuildRangeInfoKHR) = .{};
+        defer ranges.deinit(arena);
+        for (desc.ranges) |r| {
+            ranges.append(arena, sync.vkRange(r)) catch @panic("oom");
+        }
+
+        const scratch_addr = @intFromEnum(self.ctx.pools.buffers.getField(scratch, .device_addr) orelse
+            @panic("scratch buffer not found")) + scratch_offset;
+
+        var build_info: vk.AccelerationStructureBuildGeometryInfoKHR = .{
+            .type = accel.type,
+            .flags = conv.vkBuildFlags(desc.flags),
+            .mode = switch (desc.mode) {
+                .build => .build_khr,
+                .update => .update_khr,
+            },
+            .geometry_count = @intCast(geometries.items.len),
+            .p_geometries = geometries.items.ptr,
+            .dst_acceleration_structure = accel.handle,
+            .src_acceleration_structure = if (desc.src) |src|
+                self.ctx.pools.acceleration_structures.getField(src, .handle) orelse
+                    @panic("src accel not found")
+            else
+                .null_handle,
+            .scratch_data = .{ .device_address = scratch_addr },
+        };
+
+        // ppBuildRangeInfos[i] points to array of ranges for build i
+        // For single build: need pointer to (pointer to ranges array)
+        const p_ranges: [*]const vk.AccelerationStructureBuildRangeInfoKHR = ranges.items.ptr;
+        self.ctx.device.cmdBuildAccelerationStructuresKHR(
+            self.cb,
+            1,
+            @ptrCast(&build_info),
+            @ptrCast(&p_ranges),
+        );
+    }
+
+    pub fn copyAccelerationStructure(
+        self: *CommandEncoder,
+        src: root.AccelerationStructure,
+        dst: root.AccelerationStructure,
+        mode: root.AccelerationStructureCopyMode,
+    ) void {
+        const src_handle = self.ctx.pools.acceleration_structures.getField(src, .handle) orelse
+            @panic("src accel not found");
+        const dst_handle = self.ctx.pools.acceleration_structures.getField(dst, .handle) orelse
+            @panic("dst accel not found");
+
+        const copy_info: vk.CopyAccelerationStructureInfoKHR = .{
+            .src = src_handle,
+            .dst = dst_handle,
+            .mode = switch (mode) {
+                .clone => .clone_khr,
+                .compact => .compact_khr,
+            },
+        };
+
+        self.ctx.device.cmdCopyAccelerationStructureKHR(self.cb, &copy_info);
+    }
+
+    pub fn traceRays(
+        self: *CommandEncoder,
+        pipeline: root.RayTracingPipeline,
+        sbt: root.ShaderBindingTable,
+        width: u32,
+        height: u32,
+        depth: u32,
+    ) void {
+        const pipe = self.ctx.pools.ray_tracing_pipelines.get(pipeline) orelse
+            @panic("pipeline not found");
+        const sbt_entry = self.ctx.pools.shader_binding_tables.get(sbt) orelse
+            @panic("sbt not found");
+
+        const buffer_addr = @intFromEnum(self.ctx.deviceAddress(sbt_entry.buffer));
+
+        const make_region = struct {
+            fn f(base: u64, region: root.ShaderBindingTableRegion) vk.StridedDeviceAddressRegionKHR {
+                if (region.count == 0 or region.stride == 0)
+                    return .{ .device_address = 0, .stride = 0, .size = 0 };
+                return .{
+                    .device_address = base + region.offset,
+                    .stride = region.stride,
+                    .size = region.stride * region.count,
+                };
+            }
+        }.f;
+
+        const raygen_region = make_region(buffer_addr, sbt_entry.desc.raygen);
+        const miss_region = make_region(buffer_addr, sbt_entry.desc.miss);
+        const hit_region = make_region(buffer_addr, sbt_entry.desc.hit);
+        const callable_region = make_region(buffer_addr, sbt_entry.desc.callable);
+
+        self.ctx.device.cmdBindPipeline(self.cb, .ray_tracing_khr, pipe.pipeline);
+
+        var sets_buffer: [root.max_descriptor_sets]vk.DescriptorSet = undefined;
+        var sets: std.ArrayList(vk.DescriptorSet) = .initBuffer(&sets_buffer);
+        sets.appendBounded(self.ctx.descriptor_heap.set) catch unreachable;
+
+        self.ctx.device.cmdBindDescriptorSets(
+            self.cb,
+            .ray_tracing_khr,
+            pipe.layout,
+            0,
+            @intCast(sets.items.len),
+            @ptrCast(sets.items),
+            0,
+            null,
+        );
+
+        self.ctx.device.cmdTraceRaysKHR(
+            self.cb,
+            &raygen_region,
+            &miss_region,
+            &hit_region,
+            &callable_region,
+            width,
+            height,
+            depth,
+        );
+    }
+
+    fn toVkGeometry(self: *CommandEncoder, geom: root.AccelerationStructureGeometry, max_vertex: u32) vk.AccelerationStructureGeometryKHR {
+        return switch (geom) {
+            .triangles => |tri| blk: {
+                const vb_addr = @intFromEnum(self.ctx.deviceAddress(tri.vertex_buffer)) + tri.vertex_offset;
+                const ib_addr: u64 = if (tri.index_buffer) |ib|
+                    @intFromEnum(self.ctx.deviceAddress(ib)) + tri.index_offset
+                else
+                    0;
+                const transform_addr: u64 = if (tri.transform_buffer) |tb|
+                    @intFromEnum(self.ctx.deviceAddress(tb)) + tri.transform_offset
+                else
+                    0;
+
+                break :blk .{
+                    .geometry_type = .triangles_khr,
+                    .geometry = .{
+                        .triangles = .{
+                            .vertex_format = conv.vkFormat(tri.vertex_format),
+                            .vertex_data = .{ .device_address = vb_addr },
+                            .vertex_stride = tri.vertex_stride,
+                            .max_vertex = max_vertex,
+                            .index_type = if (tri.index_buffer) |_|
+                                conv.vkIndexType(tri.index_type)
+                            else
+                                .none_khr,
+                            .index_data = .{ .device_address = ib_addr },
+                            .transform_data = .{ .device_address = transform_addr },
+                        },
+                    },
+                    .flags = .{},
+                };
+            },
+            .instances => |inst| blk: {
+                const addr = @intFromEnum(self.ctx.deviceAddress(inst.buffer)) + inst.offset;
+                break :blk .{
+                    .geometry_type = .instances_khr,
+                    .geometry = .{
+                        .instances = .{
+                            .array_of_pointers = vk.FALSE,
+                            .data = .{ .device_address = addr },
+                        },
+                    },
+                    .flags = .{},
+                };
+            },
+        };
     }
 
     /// Collect samples, must be called after frame has completed

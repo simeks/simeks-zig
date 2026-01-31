@@ -15,6 +15,7 @@ const DestroyQueue = @This();
 const Resource = union(enum) {
     buffer: struct { vk.Buffer, vma.Allocation },
     image: struct { vk.Image, vma.Allocation },
+    acceleration_structure: struct { vk.AccelerationStructureKHR, vk.Buffer, vma.Allocation },
     image_view: vk.ImageView,
     sampler: vk.Sampler,
     shader: vk.ShaderModule,
@@ -42,6 +43,7 @@ pub fn push(self: *DestroyQueue, resource: anytype) void {
     const res: Resource = switch (@TypeOf(resource)) {
         struct { vk.Buffer, vma.Allocation } => .{ .buffer = resource },
         struct { vk.Image, vma.Allocation } => .{ .image = resource },
+        struct { vk.AccelerationStructureKHR, vk.Buffer, vma.Allocation } => .{ .acceleration_structure = resource },
         vk.ImageView => .{ .image_view = resource },
         vk.Sampler => .{ .sampler = resource },
         vk.ShaderModule => .{ .shader = resource },
@@ -68,6 +70,10 @@ fn destroy(self: *DestroyQueue, resource: Resource) void {
     switch (resource) {
         .buffer => |res| self.ctx.gpu_allocator.destroyBuffer(res.@"0", res.@"1"),
         .image => |res| self.ctx.gpu_allocator.destroyImage(res.@"0", res.@"1"),
+        .acceleration_structure => |res| {
+            self.ctx.device.destroyAccelerationStructureKHR(res.@"0", null);
+            self.ctx.gpu_allocator.destroyBuffer(res.@"1", res.@"2");
+        },
         .image_view => |res| self.ctx.device.destroyImageView(res, null),
         .sampler => |res| self.ctx.device.destroySampler(res, null),
         .shader => |res| self.ctx.device.destroyShaderModule(res, null),
