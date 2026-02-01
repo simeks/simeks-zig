@@ -118,6 +118,17 @@ pub const CommandEncoder = struct {
         self.recordEnd();
     }
 
+    pub fn fillBuffer(self: *CommandEncoder, buffer: root.Buffer, offset: u64, size: u64, value: u32) void {
+        self.ctx.device.cmdFillBuffer(
+            self.cb,
+            self.ctx.pools.buffers.getField(buffer, .buffer) orelse
+                @panic("buffer not found"),
+            offset,
+            size,
+            value,
+        );
+    }
+
     pub fn copyBuffer(self: *CommandEncoder, desc: *const root.CopyBufferDesc) void {
         var regions = std.ArrayList(vk.BufferCopy).initCapacity(
             self.temp_arena.allocator(),
