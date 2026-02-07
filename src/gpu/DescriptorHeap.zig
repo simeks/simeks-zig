@@ -15,8 +15,8 @@ const Bindings = enum(u32) {
 };
 
 const Sizes = struct {
-    sampled_images: u32 = 64,
-    storage_images: u32 = 64,
+    sampled_images: u32 = 128,
+    storage_images: u32 = 128,
     samplers: u32 = 64,
     storage_buffers: u32 = 64,
     uniform_buffers: u32 = 64,
