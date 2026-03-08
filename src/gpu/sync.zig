@@ -58,6 +58,27 @@ pub fn bufferBarrier(
     };
 }
 
+pub fn accelerationBarrier(desc: root.AccelerationStructureBarrier) vk.MemoryBarrier2 {
+    const src_stage, const src_access = accelerationStageAccess(desc.before);
+    const dst_stage, const dst_access = accelerationStageAccess(desc.after);
+
+    return .{
+        .src_stage_mask = src_stage,
+        .src_access_mask = src_access,
+        .dst_stage_mask = dst_stage,
+        .dst_access_mask = dst_access,
+    };
+}
+
+pub fn vkRange(range: root.AccelerationStructureBuildRange) vk.AccelerationStructureBuildRangeInfoKHR {
+    return .{
+        .primitive_count = range.primitive_count,
+        .primitive_offset = range.primitive_offset,
+        .first_vertex = range.first_vertex,
+        .transform_offset = range.transform_offset,
+    };
+}
+
 fn bufferStageAccess(
     layout: root.BufferLayout,
 ) struct { vk.PipelineStageFlags2, vk.AccessFlags2 } {
@@ -87,8 +108,23 @@ fn bufferStageAccess(
             .{ .shader_read_bit = true },
         },
         .general => .{
-            .{ .compute_shader_bit = true, .all_transfer_bit = true },
+            .{ .compute_shader_bit = true, .all_transfer_bit = true, .acceleration_structure_build_bit_khr = true },
             .{ .memory_read_bit = true, .memory_write_bit = true, .transfer_write_bit = true },
+        },
+    };
+}
+
+fn accelerationStageAccess(
+    access: root.AccelerationStructureAccess,
+) struct { vk.PipelineStageFlags2, vk.AccessFlags2 } {
+    return switch (access) {
+        .build => .{
+            .{ .acceleration_structure_build_bit_khr = true },
+            .{ .acceleration_structure_write_bit_khr = true },
+        },
+        .read => .{
+            .{ .ray_tracing_shader_bit_khr = true },
+            .{ .acceleration_structure_read_bit_khr = true },
         },
     };
 }

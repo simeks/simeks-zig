@@ -43,3 +43,4 @@ const smath = @import("smath");
 ## Example
 
 See `example/`.
+

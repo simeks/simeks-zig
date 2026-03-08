@@ -12,6 +12,7 @@ const Bindings = enum(u32) {
     sampler = 2,
     storage_buffer = 3,
     uniform_buffer = 4,
+    acceleration_structure = 5,
 };
 
 const Sizes = struct {
@@ -20,6 +21,7 @@ const Sizes = struct {
     samplers: u32 = 64,
     storage_buffers: u32 = 64,
     uniform_buffers: u32 = 64,
+    acceleration_structures: u32 = 16,
 };
 
 ctx: *Gpu,
@@ -37,6 +39,7 @@ pub fn init(ctx: *Gpu, sizes: Sizes) !DescriptorHeap {
         .{ .type = .sampler, .descriptor_count = sizes.samplers },
         .{ .type = .storage_buffer, .descriptor_count = sizes.storage_buffers },
         .{ .type = .uniform_buffer, .descriptor_count = sizes.uniform_buffers },
+        .{ .type = .acceleration_structure_khr, .descriptor_count = sizes.acceleration_structures },
     };
 
     const pool_info: vk.DescriptorPoolCreateInfo = .{
@@ -86,8 +89,16 @@ pub fn init(ctx: *Gpu, sizes: Sizes) !DescriptorHeap {
             .stage_flags = .fromInt(0x7fff_ffff),
             .p_immutable_samplers = null,
         },
+        .{
+            .binding = @intFromEnum(Bindings.acceleration_structure),
+            .descriptor_type = .acceleration_structure_khr,
+            .descriptor_count = sizes.acceleration_structures,
+            .stage_flags = .fromInt(0x7fff_ffff),
+            .p_immutable_samplers = null,
+        },
     };
     const binding_flags = [_]vk.DescriptorBindingFlags{
+        .{ .partially_bound_bit = true, .update_after_bind_bit = true },
         .{ .partially_bound_bit = true, .update_after_bind_bit = true },
         .{ .partially_bound_bit = true, .update_after_bind_bit = true },
         .{ .partially_bound_bit = true, .update_after_bind_bit = true },
@@ -254,7 +265,7 @@ pub fn putUniformBuffer(
     self: *DescriptorHeap,
     index: u32,
     buffer: vk.Buffer,
-    size: vk.DeviceSize,
+    size: u64,
 ) void {
     if (index >= self.sizes.uniform_buffers) {
         @panic("Uniform buffer descriptor heap full");
@@ -272,9 +283,38 @@ pub fn putUniformBuffer(
         .dst_array_element = index,
         .descriptor_count = 1,
         .descriptor_type = .uniform_buffer,
-        .p_image_info = &.{undefined},
+        .p_image_info = undefined,
         .p_buffer_info = @ptrCast(&buffer_info),
-        .p_texel_buffer_view = &.{undefined},
+        .p_texel_buffer_view = undefined,
+    };
+
+    self.ctx.device.updateDescriptorSets(1, @ptrCast(&write), 0, null);
+}
+
+pub fn putAccelerationStructure(
+    self: *DescriptorHeap,
+    index: u32,
+    accel: vk.AccelerationStructureKHR,
+) void {
+    if (index >= self.sizes.acceleration_structures) {
+        @panic("Acceleration structure descriptor heap full");
+    }
+
+    const accel_info: vk.WriteDescriptorSetAccelerationStructureKHR = .{
+        .acceleration_structure_count = 1,
+        .p_acceleration_structures = @ptrCast(&accel),
+    };
+
+    var write: vk.WriteDescriptorSet = .{
+        .dst_set = self.set,
+        .dst_binding = @intFromEnum(Bindings.acceleration_structure),
+        .dst_array_element = index,
+        .descriptor_count = 1,
+        .descriptor_type = .acceleration_structure_khr,
+        .p_image_info = undefined,
+        .p_buffer_info = undefined,
+        .p_texel_buffer_view = undefined,
+        .p_next = &accel_info,
     };
 
     self.ctx.device.updateDescriptorSets(1, @ptrCast(&write), 0, null);

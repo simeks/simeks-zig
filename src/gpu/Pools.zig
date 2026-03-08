@@ -62,6 +62,25 @@ const VkComputePipeline = struct {
     desc: root.ComputePipelineDesc,
 };
 
+const VkAccelerationStructure = struct {
+    handle: vk.AccelerationStructureKHR,
+    buffer: vk.Buffer,
+    allocation: vma.Allocation,
+    size: u64,
+    type: vk.AccelerationStructureTypeKHR,
+};
+
+const VkRayTracingPipeline = struct {
+    pipeline: vk.Pipeline,
+    layout: vk.PipelineLayout,
+    desc: root.RayTracingPipelineDesc,
+};
+
+const VkShaderBindingTable = struct {
+    buffer: root.Buffer,
+    desc: root.ShaderBindingTableDesc,
+};
+
 const BufferPool = Pool(VkBuffer, 16, 16, 128);
 const TexturePool = Pool(VkTexture, 16, 16, 128);
 const TextureViewPool = Pool(VkTextureView, 16, 16, 128);
@@ -69,6 +88,9 @@ const SamplerPool = Pool(VkSampler, 16, 16, 128);
 const ShaderPool = Pool(VkShader, 16, 16, 128);
 const RenderPipelinePool = Pool(VkRenderPipeline, 16, 16, 128);
 const ComputePipelinePool = Pool(VkComputePipeline, 16, 16, 128);
+const AccelerationStructurePool = Pool(VkAccelerationStructure, 16, 16, 64);
+const RayTracingPipelinePool = Pool(VkRayTracingPipeline, 16, 16, 64);
+const ShaderBindingTablePool = Pool(VkShaderBindingTable, 16, 16, 64);
 
 pub const Buffer = BufferPool.Handle;
 pub const Texture = TexturePool.Handle;
@@ -77,6 +99,9 @@ pub const Sampler = SamplerPool.Handle;
 pub const Shader = ShaderPool.Handle;
 pub const RenderPipeline = RenderPipelinePool.Handle;
 pub const ComputePipeline = ComputePipelinePool.Handle;
+pub const AccelerationStructure = AccelerationStructurePool.Handle;
+pub const RayTracingPipeline = RayTracingPipelinePool.Handle;
+pub const ShaderBindingTable = ShaderBindingTablePool.Handle;
 
 const Pools = @This();
 
@@ -87,6 +112,9 @@ samplers: SamplerPool,
 shaders: ShaderPool,
 render_pipelines: RenderPipelinePool,
 compute_pipelines: ComputePipelinePool,
+acceleration_structures: AccelerationStructurePool,
+ray_tracing_pipelines: RayTracingPipelinePool,
+shader_binding_tables: ShaderBindingTablePool,
 
 pub fn init(allocator: Allocator) !Pools {
     return .{
@@ -97,6 +125,9 @@ pub fn init(allocator: Allocator) !Pools {
         .shaders = try .init(allocator),
         .render_pipelines = try .init(allocator),
         .compute_pipelines = try .init(allocator),
+        .acceleration_structures = try .init(allocator),
+        .ray_tracing_pipelines = try .init(allocator),
+        .shader_binding_tables = try .init(allocator),
     };
 }
 pub fn deinit(self: *Pools) void {
@@ -107,6 +138,9 @@ pub fn deinit(self: *Pools) void {
     self.shaders.deinit();
     self.render_pipelines.deinit();
     self.compute_pipelines.deinit();
+    self.acceleration_structures.deinit();
+    self.ray_tracing_pipelines.deinit();
+    self.shader_binding_tables.deinit();
 }
 
 /// Resource pool
