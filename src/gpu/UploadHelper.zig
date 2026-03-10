@@ -134,18 +134,15 @@ pub fn uploadTexture(
     const info = self.ctx.pools.textures.getFieldPtr(handle, .info) orelse
         return error.TextureNotFound;
 
-    // TODO: >2D
-    assert(info.extent.depth == 1);
-
     // TODO: alignment
     const row_pitch: usize = formatStride(info.format) * info.extent.width;
-    const slice_pitch: usize = row_pitch * info.extent.height;
+    const total_size: usize = row_pitch * info.extent.height * info.extent.depth;
 
-    if (data.len != slice_pitch) {
+    if (data.len != total_size) {
         return error.InvalidTextureSize;
     }
 
-    const tmp = try self.temp_alloc.allocate(slice_pitch, 1);
+    const tmp = try self.temp_alloc.allocate(total_size, 1);
     @memcpy(tmp.data, data);
 
     try self.ctx.device.resetCommandPool(self.cmd_pool, .{});
