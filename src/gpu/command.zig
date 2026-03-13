@@ -397,6 +397,19 @@ pub const CommandEncoder = struct {
                     .flags = .{},
                 };
             },
+            .aabbs => |aabb| blk: {
+                const addr = @intFromEnum(self.ctx.deviceAddress(aabb.buffer)) + aabb.offset;
+                break :blk .{
+                    .geometry_type = .aabbs_khr,
+                    .geometry = .{
+                        .aabbs = .{
+                            .data = .{ .device_address = addr },
+                            .stride = aabb.stride,
+                        },
+                    },
+                    .flags = .{},
+                };
+            },
             .instances => |inst| blk: {
                 const addr = @intFromEnum(self.ctx.deviceAddress(inst.buffer)) + inst.offset;
                 break :blk .{

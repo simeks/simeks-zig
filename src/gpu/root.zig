@@ -455,6 +455,11 @@ pub const AccelerationStructureGeometry = union(enum) {
         transform_buffer: ?Buffer = null,
         transform_offset: u64 = 0,
     },
+    aabbs: struct {
+        buffer: Buffer,
+        offset: u64 = 0,
+        stride: u32 = 24,
+    },
     instances: struct {
         buffer: Buffer,
         offset: u64 = 0,

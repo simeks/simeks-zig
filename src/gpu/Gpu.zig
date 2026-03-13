@@ -758,6 +758,19 @@ fn vkGeometry(
             };
         },
 
+        .aabbs => |aabb| blk: {
+            const addr = @intFromEnum(ctx.deviceAddress(aabb.buffer)) + aabb.offset;
+            break :blk .{
+                .geometry_type = .aabbs_khr,
+                .geometry = .{
+                    .aabbs = .{
+                        .data = .{ .device_address = addr },
+                        .stride = aabb.stride,
+                    },
+                },
+                .flags = .{},
+            };
+        },
         .instances => |inst| blk: {
             const addr = @intFromEnum(ctx.deviceAddress(inst.buffer)) + inst.offset;
             break :blk .{
