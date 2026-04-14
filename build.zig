@@ -62,32 +62,32 @@ pub fn build(b: *std.Build) void {
     gpu_mod.addImport("vma", vma_dep.module("vma"));
 
     // Generate wayland module (Linux only, using lazy dependency)
-    if (builtin.os.tag == .linux) {
-        if (b.lazyDependency("wayland", .{})) |_| {
-            const Scanner = @import("wayland").Scanner;
-            const scanner = Scanner.create(b, .{});
-            scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
-            scanner.generate("wl_compositor", 1);
-            scanner.generate("wl_seat", 1);
-            scanner.generate("wl_shm", 1);
-            scanner.generate("xdg_wm_base", 1);
-            scanner.addSystemProtocol("unstable/pointer-constraints/pointer-constraints-unstable-v1.xml");
-            scanner.generate("zwp_pointer_constraints_v1", 1);
-            scanner.addSystemProtocol("unstable/relative-pointer/relative-pointer-unstable-v1.xml");
-            scanner.generate("zwp_relative_pointer_manager_v1", 1);
-
-            const wayland_mod = b.createModule(.{
-                .root_source_file = scanner.result,
-            });
-
-            const os_mod = b.addModule("os", .{
-                .root_source_file = b.path("src/os/root.zig"),
-                .target = target,
-                .optimize = optimize,
-            });
-            os_mod.addImport("wayland", wayland_mod);
-        }
-    }
+    // if (builtin.os.tag == .linux) {
+    //     if (b.lazyDependency("wayland", .{})) |_| {
+    //         const Scanner = @import("wayland").Scanner;
+    //         const scanner = Scanner.create(b, .{});
+    //         scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
+    //         scanner.generate("wl_compositor", 1);
+    //         scanner.generate("wl_seat", 1);
+    //         scanner.generate("wl_shm", 1);
+    //         scanner.generate("xdg_wm_base", 1);
+    //         scanner.addSystemProtocol("unstable/pointer-constraints/pointer-constraints-unstable-v1.xml");
+    //         scanner.generate("zwp_pointer_constraints_v1", 1);
+    //         scanner.addSystemProtocol("unstable/relative-pointer/relative-pointer-unstable-v1.xml");
+    //         scanner.generate("zwp_relative_pointer_manager_v1", 1);
+    //
+    //         const wayland_mod = b.createModule(.{
+    //             .root_source_file = scanner.result,
+    //         });
+    //
+    //         const os_mod = b.addModule("os", .{
+    //             .root_source_file = b.path("src/os/root.zig"),
+    //             .target = target,
+    //             .optimize = optimize,
+    //         });
+    //         os_mod.addImport("wayland", wayland_mod);
+    //     }
+    // }
 
     // Tests
     const test_step = b.step("test", "Run unit tests");
@@ -124,10 +124,10 @@ pub fn linkSystemLibraries(exe: *std.Build.Step.Compile) void {
     const os = exe.root_module.resolved_target.?.result.os.tag;
     switch (os) {
         .linux => {
-            exe.linkSystemLibrary("wayland-client");
-            exe.linkSystemLibrary("wayland-cursor");
+            // exe.linkSystemLibrary("wayland-client");
+            // exe.linkSystemLibrary("wayland-cursor");
+            // exe.linkSystemLibrary("xkbcommon");
             exe.linkSystemLibrary("vulkan");
-            exe.linkSystemLibrary("xkbcommon");
         },
         .macos => {
             exe.linkSystemLibrary("vulkan");

@@ -331,8 +331,8 @@ fn mat4ExpectEqual(expected: [4][4]f32, actual: Mat4) !void {
     const tol = 0.0001;
 
     const expectApproxEqAbs = std.testing.expectApproxEqAbs;
-    for (0..4) |i| {
-        for (0..4) |j| {
+    inline for (0..4) |i| {
+        inline for (0..4) |j| {
             try expectApproxEqAbs(actual.cols[i][j], expected[i][j], tol);
         }
     }

@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const assert = std.debug.assert;
 
 pub const Image = struct {
@@ -94,20 +95,22 @@ pub fn readFromMemory(gpa: Allocator, data: []const u8) !Image {
     return readImpl(gpa, &reader);
 }
 
-pub fn read(gpa: Allocator, path: []const u8) !Image {
-    const f = try std.fs.cwd().openFile(path, .{});
-    defer f.close();
+pub fn read(io: Io, gpa: Allocator, path: []const u8) !Image {
+    const f = try Io.Dir.cwd().openFile(io, path, .{});
+    defer f.close(io);
 
     var buf: [1024]u8 = undefined;
-    var reader = f.reader(&buf);
+    var reader = f.reader(io, &buf);
 
     return readImpl(gpa, &reader.interface);
 }
 
 test "tga" {
+    const io = std.testing.io;
+
     const expectEqual = std.testing.expectEqual;
 
-    const img = try read(std.testing.allocator, "tests/test.tga");
+    const img = try read(io, std.testing.allocator, "tests/test.tga");
     defer img.deinit(std.testing.allocator);
 
     try expectEqual(4, img.width);
