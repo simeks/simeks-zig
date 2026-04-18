@@ -119,21 +119,19 @@ pub fn build(b: *std.Build) void {
 }
 
 pub fn linkSystemLibraries(exe: *std.Build.Step.Compile) void {
-    exe.linkLibC();
-
     const os = exe.root_module.resolved_target.?.result.os.tag;
     switch (os) {
         .linux => {
-            // exe.linkSystemLibrary("wayland-client");
-            // exe.linkSystemLibrary("wayland-cursor");
-            // exe.linkSystemLibrary("xkbcommon");
-            exe.linkSystemLibrary("vulkan");
+            // exe.root_module.linkSystemLibrary("wayland-client", .{});
+            // exe.root_module.linkSystemLibrary("wayland-cursor", .{});
+            // exe.root_module.linkSystemLibrary("xkbcommon", .{});
+            exe.root_module.linkSystemLibrary("vulkan", .{});
         },
         .macos => {
-            exe.linkSystemLibrary("vulkan");
+            exe.root_module.linkSystemLibrary("vulkan", .{});
         },
         .windows => {
-            exe.linkSystemLibrary("vulkan-1");
+            exe.root_module.linkSystemLibrary("vulkan-1", .{});
         },
         else => {},
     }
