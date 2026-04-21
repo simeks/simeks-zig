@@ -96,7 +96,7 @@ pub fn init(ctx: *Gpu, extent: vk.Extent2D) !Swapchain {
         .pre_transform = caps.current_transform,
         .composite_alpha = .{ .opaque_bit_khr = true },
         .present_mode = present_mode,
-        .clipped = vk.TRUE,
+        .clipped = .true,
         // TODO: We should probably use use this
         // .old_swapchain = .null_handle,
     };

@@ -13,8 +13,8 @@
             .hash = "zig_vma-0.0.0-Lu0kQSoIAADRt6hKup3X2i1qRUnGKXBceFOEowuq0616",
         },
         .vulkan = .{
-            .url = "git+https://github.com/snektron/vulkan-zig#3adbeefbc833c12656791d304b37a6315b357745",
-            .hash = "vulkan-0.0.0-r7YtxyBsAwD35FvkFhT2xruTNdCByD3TtGw44XWtfun8",
+            .url = "git+https://github.com/snektron/vulkan-zig#6d77ac2a9b25c8940d493b2f7739c639c4842482",
+            .hash = "vulkan-0.0.0-r7Ytx7l9AwCsebml5bToJyyr67VASs0-7UszmWKVXNb7",
         },
         // .wayland = .{
         //     .url = "git+https://codeberg.org/ifreund/zig-wayland#b2df7eda58badac138faea6fd78c7f08c8ef936a",

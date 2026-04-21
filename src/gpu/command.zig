@@ -66,12 +66,12 @@ pub const CommandEncoder = struct {
             .pool = pool,
             .cb = cb[0],
             .query_pool = query_pool,
-            .pass_names = .{},
+            .pass_names = .empty,
         };
     }
     pub fn deinit(self: CommandEncoder) void {
         self.ctx.device.destroyQueryPool(self.query_pool, null);
-        self.ctx.device.freeCommandBuffers(self.pool, 1, &.{self.cb});
+        self.ctx.device.freeCommandBuffers(self.pool, &.{self.cb});
         self.ctx.device.destroyCommandPool(self.pool, null);
         self.temp_arena.deinit();
     }
@@ -593,9 +593,7 @@ pub const RenderPassEncoder = struct {
             .graphics,
             pipeline_entry.layout,
             0,
-            @intCast(sets.items.len),
-            @ptrCast(sets.items),
-            0,
+            sets.items,
             null,
         );
     }
@@ -603,7 +601,6 @@ pub const RenderPassEncoder = struct {
         self.ctx.device.cmdSetViewport(
             self.cb,
             0,
-            1,
             &.{.{
                 .x = viewport.x,
                 .y = viewport.y,
@@ -618,7 +615,6 @@ pub const RenderPassEncoder = struct {
         self.ctx.device.cmdSetScissor(
             self.cb,
             0,
-            1,
             &.{.{
                 .offset = .{
                     .x = rect.x,
@@ -732,9 +728,7 @@ pub const ComputePassEncoder = struct {
             .compute,
             pipeline_entry.layout,
             0,
-            @intCast(sets.items.len),
-            @ptrCast(sets.items),
-            0,
+            sets.items,
             null,
         );
     }

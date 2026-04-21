@@ -644,3 +644,7 @@ pub const PassTime = struct {
     name: ?StringTable.Id,
     time: f32,
 };
+
+test {
+    _ = @import("Gpu.zig");
+}

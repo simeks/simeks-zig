@@ -520,14 +520,14 @@ pub fn createSampler(self: *Gpu, desc: *const root.SamplerDesc) !Sampler {
         .address_mode_v = conv.vkSamplerAddressMode(desc.address_mode_v),
         .address_mode_w = conv.vkSamplerAddressMode(desc.address_mode_w),
         .mip_lod_bias = 0,
-        .anisotropy_enable = vk.FALSE,
+        .anisotropy_enable = .false,
         .max_anisotropy = 0,
-        .compare_enable = vk.FALSE,
+        .compare_enable = .false,
         .compare_op = .never,
         .min_lod = 0,
         .max_lod = std.math.floatMax(f32),
         .border_color = .float_transparent_black,
-        .unnormalized_coordinates = vk.FALSE,
+        .unnormalized_coordinates = .false,
     };
 
     const vk_sampler = try self.device.createSampler(&sampler_info, null);
@@ -777,7 +777,7 @@ fn vkGeometry(
                 .geometry_type = .instances_khr,
                 .geometry = .{
                     .instances = .{
-                        .array_of_pointers = vk.FALSE,
+                        .array_of_pointers = .false,
                         .data = .{ .device_address = addr },
                     },
                 },
@@ -792,14 +792,14 @@ pub fn getAccelerationStructureBuildSizes(
     desc: *const root.AccelerationStructureBuildDesc,
 ) !AccelerationStructureSizes {
     const arena = self.allocator;
-    var geometries: std.ArrayListUnmanaged(vk.AccelerationStructureGeometryKHR) = .{};
+    var geometries: std.ArrayList(vk.AccelerationStructureGeometryKHR) = .empty;
     defer geometries.deinit(arena);
     for (desc.geometries, desc.ranges) |g, r| {
         const max_vertex = r.first_vertex + r.primitive_count * 3;
         try geometries.append(arena, try vkGeometry(self, g, max_vertex));
     }
 
-    var range_counts: std.ArrayListUnmanaged(u32) = .{};
+    var range_counts: std.ArrayList(u32) = .empty;
     defer range_counts.deinit(arena);
     for (desc.ranges) |r| {
         try range_counts.append(arena, r.primitive_count);
@@ -936,7 +936,7 @@ pub fn createRayTracingPipeline(
     }, null);
     errdefer self.device.destroyPipelineLayout(vk_layout, null);
 
-    var stages: std.ArrayListUnmanaged(vk.PipelineShaderStageCreateInfo) = .{};
+    var stages: std.ArrayList(vk.PipelineShaderStageCreateInfo) = .empty;
     defer stages.deinit(self.allocator);
     for (desc.shaders) |s| {
         const shader = self.pools.shaders.get(s.shader) orelse return error.InvalidShader;
@@ -947,7 +947,7 @@ pub fn createRayTracingPipeline(
         });
     }
 
-    var groups: std.ArrayListUnmanaged(vk.RayTracingShaderGroupCreateInfoKHR) = .{};
+    var groups: std.ArrayList(vk.RayTracingShaderGroupCreateInfoKHR) = .empty;
     defer groups.deinit(self.allocator);
     for (desc.groups) |g| {
         var group: vk.RayTracingShaderGroupCreateInfoKHR = .{
@@ -980,23 +980,23 @@ pub fn createRayTracingPipeline(
         .base_pipeline_index = -1,
     };
 
-    var pipeline: vk.Pipeline = undefined;
+    var pipelines = [_]vk.Pipeline{undefined};
+
     _ = try self.device.createRayTracingPipelinesKHR(
         .null_handle,
         .null_handle,
-        1,
-        @ptrCast(&pipeline_info),
+        &.{pipeline_info},
         null,
-        @ptrCast(&pipeline),
+        &pipelines,
     );
 
     if (desc.label) |label| {
         self.debugSetName(vk_layout, label);
-        self.debugSetName(pipeline, label);
+        self.debugSetName(pipelines[0], label);
     }
 
     self.pools.ray_tracing_pipelines.set(handle, .{
-        .pipeline = pipeline,
+        .pipeline = pipelines[0],
         .layout = vk_layout,
         .desc = desc.*,
     });
@@ -1154,7 +1154,7 @@ pub fn submit(self: *Gpu, enc: *CommandEncoder) !void {
         .signal_semaphore_info_count = signal_semaphores.len,
         .p_signal_semaphore_infos = @ptrCast(&signal_semaphores),
     };
-    try self.device.queueSubmit2KHR(self.queue.handle, 1, &.{submit_info}, .null_handle);
+    try self.device.queueSubmit2KHR(self.queue.handle, &.{submit_info}, .null_handle);
 }
 pub fn present(self: *Gpu) !void {
     // TODO: Now we assume only one submit per frame
@@ -1392,43 +1392,43 @@ fn selectPhysicalDevice(
 fn createDevice(instance: Instance, candidate: DeviceCandidate, allocator: Allocator) !Device {
     // TODO: Check features
     const shader_draw_parameters: vk.PhysicalDeviceShaderDrawParametersFeatures = .{
-        .shader_draw_parameters = vk.TRUE,
+        .shader_draw_parameters = .true,
     };
     const dynamic_rendering_feature: vk.PhysicalDeviceDynamicRenderingFeaturesKHR = .{
         .p_next = @constCast(&shader_draw_parameters),
-        .dynamic_rendering = vk.TRUE,
+        .dynamic_rendering = .true,
     };
     const timeline_semaphore_feature: vk.PhysicalDeviceTimelineSemaphoreFeaturesKHR = .{
         .p_next = @constCast(&dynamic_rendering_feature),
-        .timeline_semaphore = vk.TRUE,
+        .timeline_semaphore = .true,
     };
     const synchronization_2_feature: vk.PhysicalDeviceSynchronization2FeaturesKHR = .{
         .p_next = @constCast(&timeline_semaphore_feature),
-        .synchronization_2 = vk.TRUE,
+        .synchronization_2 = .true,
     };
     const descriptor_indexing_feature: vk.PhysicalDeviceDescriptorIndexingFeatures = .{
         .p_next = @constCast(&synchronization_2_feature),
-        .descriptor_binding_storage_buffer_update_after_bind = vk.TRUE,
-        .descriptor_binding_uniform_buffer_update_after_bind = vk.TRUE,
-        .descriptor_binding_sampled_image_update_after_bind = vk.TRUE,
-        .descriptor_binding_storage_image_update_after_bind = vk.TRUE,
-        .descriptor_binding_partially_bound = vk.TRUE,
-        .runtime_descriptor_array = vk.TRUE,
-        .shader_storage_image_array_non_uniform_indexing = vk.TRUE,
-        .shader_sampled_image_array_non_uniform_indexing = vk.TRUE,
+        .descriptor_binding_storage_buffer_update_after_bind = .true,
+        .descriptor_binding_uniform_buffer_update_after_bind = .true,
+        .descriptor_binding_sampled_image_update_after_bind = .true,
+        .descriptor_binding_storage_image_update_after_bind = .true,
+        .descriptor_binding_partially_bound = .true,
+        .runtime_descriptor_array = .true,
+        .shader_storage_image_array_non_uniform_indexing = .true,
+        .shader_sampled_image_array_non_uniform_indexing = .true,
     };
     const buffer_device_address_features: vk.PhysicalDeviceBufferDeviceAddressFeatures = .{
         .p_next = @constCast(&descriptor_indexing_feature),
-        .buffer_device_address = vk.TRUE,
+        .buffer_device_address = .true,
     };
     const accel_structure_features: vk.PhysicalDeviceAccelerationStructureFeaturesKHR = .{
         .p_next = @constCast(&buffer_device_address_features),
-        .acceleration_structure = vk.TRUE,
-        .descriptor_binding_acceleration_structure_update_after_bind = vk.TRUE,
+        .acceleration_structure = .true,
+        .descriptor_binding_acceleration_structure_update_after_bind = .true,
     };
     const ray_tracing_pipeline_features: vk.PhysicalDeviceRayTracingPipelineFeaturesKHR = .{
         .p_next = @constCast(&accel_structure_features),
-        .ray_tracing_pipeline = vk.TRUE,
+        .ray_tracing_pipeline = .true,
     };
 
     const queue_priority: [1]f32 = .{1};
@@ -1485,7 +1485,7 @@ fn createDevice(instance: Instance, candidate: DeviceCandidate, allocator: Alloc
     }
 
     const features: vk.PhysicalDeviceFeatures = .{
-        .shader_int_64 = vk.TRUE,
+        .shader_int_64 = .true,
     };
 
     const device_info: vk.DeviceCreateInfo = .{
@@ -1519,7 +1519,7 @@ fn debugCallback(
     data: ?*const vk.DebugUtilsMessengerCallbackDataEXT,
     _: ?*anyopaque,
 ) callconv(.c) vk.Bool32 {
-    if (data == null or data.?.p_message == null) return vk.FALSE;
+    if (data == null or data.?.p_message == null) return .false;
 
     if (severity.error_bit_ext) {
         log.err("Vulkan: {s}", .{data.?.p_message.?});
@@ -1528,7 +1528,7 @@ fn debugCallback(
     } else {
         log.info("Vulkan: {s}", .{data.?.p_message.?});
     }
-    return vk.FALSE;
+    return .false;
 }
 
 fn createVkRenderPipeline(
@@ -1562,7 +1562,7 @@ fn createVkRenderPipeline(
     };
     const input_assembly: vk.PipelineInputAssemblyStateCreateInfo = .{
         .topology = .triangle_list,
-        .primitive_restart_enable = vk.FALSE,
+        .primitive_restart_enable = .false,
     };
     const viewport_state: vk.PipelineViewportStateCreateInfo = .{
         .viewport_count = 1,
@@ -1572,12 +1572,12 @@ fn createVkRenderPipeline(
     };
 
     const raster_state: vk.PipelineRasterizationStateCreateInfo = .{
-        .depth_clamp_enable = vk.FALSE,
-        .rasterizer_discard_enable = vk.FALSE,
+        .depth_clamp_enable = .false,
+        .rasterizer_discard_enable = .false,
         .polygon_mode = .fill,
         .cull_mode = conv.vkCullModeFlags(desc.cull_mode),
         .front_face = conv.vkFrontFace(desc.front_face),
-        .depth_bias_enable = vk.FALSE,
+        .depth_bias_enable = .false,
         .depth_bias_constant_factor = 0,
         .depth_bias_clamp = 0,
         .depth_bias_slope_factor = 0,
@@ -1586,10 +1586,10 @@ fn createVkRenderPipeline(
 
     const ms_state = vk.PipelineMultisampleStateCreateInfo{
         .rasterization_samples = .{ .@"1_bit" = true },
-        .sample_shading_enable = vk.FALSE,
+        .sample_shading_enable = .false,
         .min_sample_shading = 0,
-        .alpha_to_coverage_enable = vk.FALSE,
-        .alpha_to_one_enable = vk.FALSE,
+        .alpha_to_coverage_enable = .false,
+        .alpha_to_one_enable = .false,
     };
 
     var attachments_buffer: [root.max_color_attachments]vk.PipelineColorBlendAttachmentState =
@@ -1599,7 +1599,7 @@ fn createVkRenderPipeline(
 
     for (desc.color_attachments.slice()) |att| {
         attachments.appendBounded(.{
-            .blend_enable = if (att.blend_enabled) vk.TRUE else vk.FALSE,
+            .blend_enable = if (att.blend_enabled) .true else .false,
             .src_color_blend_factor = conv.vkBlendFactor(att.blend_color.src_factor),
             .dst_color_blend_factor = conv.vkBlendFactor(att.blend_color.dst_factor),
             .color_blend_op = conv.vkBlendOp(att.blend_color.op),
@@ -1611,7 +1611,7 @@ fn createVkRenderPipeline(
     }
 
     const color_blend_state: vk.PipelineColorBlendStateCreateInfo = .{
-        .logic_op_enable = vk.FALSE,
+        .logic_op_enable = .false,
         .logic_op = .clear,
         .attachment_count = @intCast(attachments.items.len),
         .p_attachments = @ptrCast(attachments.items),
@@ -1634,12 +1634,12 @@ fn createVkRenderPipeline(
 
     const use_depth_stencil = desc.depth_stencil.format != .undefined;
     var ds_state: vk.PipelineDepthStencilStateCreateInfo = .{
-        .depth_test_enable = if (desc.depth_stencil.depth_test_enabled) vk.TRUE else vk.FALSE,
-        .depth_write_enable = if (desc.depth_stencil.depth_write_enabled) vk.TRUE else vk.FALSE,
+        .depth_test_enable = if (desc.depth_stencil.depth_test_enabled) .true else .false,
+        .depth_write_enable = if (desc.depth_stencil.depth_write_enabled) .true else .false,
         .depth_compare_op = conv.vkCompareOp(desc.depth_stencil.depth_compare_op),
         // TODO:
-        .depth_bounds_test_enable = vk.FALSE,
-        .stencil_test_enable = vk.FALSE,
+        .depth_bounds_test_enable = .false,
+        .stencil_test_enable = .false,
         .front = .{
             .fail_op = .keep,
             .pass_op = .keep,
@@ -1693,15 +1693,14 @@ fn createVkRenderPipeline(
         .base_pipeline_index = -1,
     };
 
-    var pipeline: vk.Pipeline = undefined;
+    var pipelines = [_]vk.Pipeline{undefined};
     _ = try self.device.createGraphicsPipelines(
         .null_handle,
-        1,
-        @ptrCast(&pipeline_info),
+        &.{pipeline_info},
         null,
-        @ptrCast(&pipeline),
+        &pipelines,
     );
-    return pipeline;
+    return pipelines[0];
 }
 fn createVkComputePipeline(
     self: *Gpu,
@@ -1721,14 +1720,17 @@ fn createVkComputePipeline(
         .base_pipeline_index = 0,
     };
 
-    var pipeline: vk.Pipeline = undefined;
+    var pipelines = [_]vk.Pipeline{undefined};
     _ = try self.device.createComputePipelines(
         .null_handle,
-        1,
-        @ptrCast(&pipeline_info),
+        &.{pipeline_info},
         null,
-        @ptrCast(&pipeline),
+        &pipelines,
     );
 
-    return pipeline;
+    return pipelines[0];
+}
+
+test {
+    std.testing.refAllDecls(@This());
 }

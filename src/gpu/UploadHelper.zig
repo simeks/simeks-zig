@@ -36,7 +36,7 @@ pub fn init(ctx: *Gpu) !UploadHelper {
         &cb_info,
         &cb,
     );
-    errdefer ctx.device.freeCommandBuffers(pool, 1, &.{cb[0]});
+    errdefer ctx.device.freeCommandBuffers(pool, &.{cb[0]});
 
     const fence = try ctx.device.createFence(&.{}, null);
     errdefer ctx.device.destroyFence(fence, null);
@@ -55,7 +55,7 @@ pub fn init(ctx: *Gpu) !UploadHelper {
 pub fn deinit(self: *UploadHelper) void {
     self.temp_alloc.deinit();
     self.ctx.device.destroyFence(self.fence, null);
-    self.ctx.device.freeCommandBuffers(self.cmd_pool, 1, &.{self.cb});
+    self.ctx.device.freeCommandBuffers(self.cmd_pool, &.{self.cb});
     self.ctx.device.destroyCommandPool(self.cmd_pool, null);
 }
 
@@ -88,7 +88,6 @@ pub fn uploadBuffer(
         // TODO:
         self.ctx.pools.buffers.getField(self.temp_alloc.buffer, .buffer) orelse unreachable,
         vk_buffer,
-        1,
         &.{
             .{
                 .src_offset = 0,
@@ -112,15 +111,14 @@ pub fn uploadBuffer(
         .p_command_buffer_infos = @ptrCast(&cb_info),
     };
 
-    try self.ctx.device.resetFences(1, &.{self.fence});
+    try self.ctx.device.resetFences(&.{self.fence});
     try self.ctx.device.queueSubmit2KHR(
         self.ctx.queue.handle,
-        1,
         &.{submit_info},
         self.fence,
     );
 
-    _ = try self.ctx.device.waitForFences(1, &.{self.fence}, vk.TRUE, std.math.maxInt(u64));
+    _ = try self.ctx.device.waitForFences(&.{self.fence}, .true, std.math.maxInt(u64));
     self.temp_alloc.reset();
 }
 
@@ -175,7 +173,6 @@ pub fn uploadTexture(
         self.ctx.pools.buffers.getField(self.temp_alloc.buffer, .buffer) orelse unreachable, // TODO:
         vk_image,
         .transfer_dst_optimal,
-        1,
         &.{
             .{
                 // TODO:
@@ -227,14 +224,13 @@ pub fn uploadTexture(
         .p_command_buffer_infos = @ptrCast(&cb_info),
     };
 
-    try self.ctx.device.resetFences(1, &.{self.fence});
+    try self.ctx.device.resetFences(&.{self.fence});
     try self.ctx.device.queueSubmit2KHR(
         self.ctx.queue.handle,
-        1,
         &.{submit_info},
         self.fence,
     );
-    _ = try self.ctx.device.waitForFences(1, &.{self.fence}, vk.TRUE, std.math.maxInt(u64));
+    _ = try self.ctx.device.waitForFences(&.{self.fence}, .true, std.math.maxInt(u64));
     self.temp_alloc.reset();
 }
 

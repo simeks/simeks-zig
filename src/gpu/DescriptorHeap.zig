@@ -130,7 +130,7 @@ pub fn init(ctx: *Gpu, sizes: Sizes) !DescriptorHeap {
 
     var set: [1]vk.DescriptorSet = undefined;
     try ctx.device.allocateDescriptorSets(&alloc_info, &set);
-    errdefer ctx.device.freeDescriptorSets(pool, 1, &set);
+    errdefer ctx.device.freeDescriptorSets(pool, &set);
     ctx.debugSetName(set[0], "DescriptorHeap.set");
 
     return .{
@@ -142,7 +142,7 @@ pub fn init(ctx: *Gpu, sizes: Sizes) !DescriptorHeap {
     };
 }
 pub fn deinit(self: *DescriptorHeap) void {
-    self.ctx.device.freeDescriptorSets(self.pool, 1, &.{self.set}) catch {};
+    self.ctx.device.freeDescriptorSets(self.pool, &.{self.set}) catch {};
     self.ctx.device.destroyDescriptorSetLayout(self.layout, null);
     self.ctx.device.destroyDescriptorPool(self.pool, null);
 }
@@ -172,7 +172,7 @@ pub fn putSampledImageView(
         .p_texel_buffer_view = &.{undefined},
     };
 
-    self.ctx.device.updateDescriptorSets(1, @ptrCast(&write), 0, null);
+    self.ctx.device.updateDescriptorSets(&.{write}, null);
 }
 pub fn putStorageImageView(
     self: *DescriptorHeap,
@@ -200,7 +200,7 @@ pub fn putStorageImageView(
         .p_texel_buffer_view = &.{undefined},
     };
 
-    self.ctx.device.updateDescriptorSets(1, @ptrCast(&write), 0, null);
+    self.ctx.device.updateDescriptorSets(&.{write}, null);
 }
 pub fn putSampler(
     self: *DescriptorHeap,
@@ -228,7 +228,7 @@ pub fn putSampler(
         .p_texel_buffer_view = &.{undefined},
     };
 
-    self.ctx.device.updateDescriptorSets(1, @ptrCast(&write), 0, null);
+    self.ctx.device.updateDescriptorSets(&.{write}, null);
 }
 
 pub fn putStorageBuffer(
@@ -288,7 +288,7 @@ pub fn putUniformBuffer(
         .p_texel_buffer_view = undefined,
     };
 
-    self.ctx.device.updateDescriptorSets(1, @ptrCast(&write), 0, null);
+    self.ctx.device.updateDescriptorSets(&.{write}, null);
 }
 
 pub fn putAccelerationStructure(
@@ -305,7 +305,7 @@ pub fn putAccelerationStructure(
         .p_acceleration_structures = @ptrCast(&accel),
     };
 
-    var write: vk.WriteDescriptorSet = .{
+    const write: vk.WriteDescriptorSet = .{
         .dst_set = self.set,
         .dst_binding = @intFromEnum(Bindings.acceleration_structure),
         .dst_array_element = index,
@@ -317,5 +317,5 @@ pub fn putAccelerationStructure(
         .p_next = &accel_info,
     };
 
-    self.ctx.device.updateDescriptorSets(1, @ptrCast(&write), 0, null);
+    self.ctx.device.updateDescriptorSets(&.{write}, null);
 }
