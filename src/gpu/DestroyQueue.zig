@@ -31,12 +31,12 @@ frame_num: u64 = 0,
 pub fn init(ctx: *Gpu) DestroyQueue {
     return .{
         .ctx = ctx,
-        .queue = .init(ctx.allocator),
+        .queue = .empty,
     };
 }
 pub fn deinit(self: *DestroyQueue) void {
     self.destroyAll();
-    self.queue.deinit();
+    self.queue.deinit(self.ctx.allocator);
 }
 /// Queue resource for deletion
 pub fn push(self: *DestroyQueue, resource: anytype) void {
@@ -51,7 +51,7 @@ pub fn push(self: *DestroyQueue, resource: anytype) void {
         vk.PipelineLayout => .{ .pipeline_layout = resource },
         else => @compileError("Invalid resource type " ++ @typeName(@TypeOf(resource))),
     };
-    self.queue.pushBack(.{ self.frame_num, res }) catch @panic("Out of memory");
+    self.queue.pushBack(self.ctx.allocator, .{ self.frame_num, res }) catch @panic("Out of memory");
 }
 /// Advances frame counter and destroys resources ready to be destroyed
 pub fn update(self: *DestroyQueue) void {

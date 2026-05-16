@@ -110,6 +110,8 @@ pub fn build(b: *std.Build) void {
             .root_module = mod.module,
         });
 
+        linkSystemLibraries(test_exe);
+
         b.installArtifact(test_exe);
 
         const run_test = b.addRunArtifact(test_exe);

@@ -5,32 +5,28 @@ const Allocator = std.mem.Allocator;
 pub fn Deque(T: type) type {
     return struct {
         const Self = @This();
+        pub const empty: Self = .{
+            .items = &[_]T{},
+            .head = 0,
+            .tail = 0,
+        };
 
-        allocator: Allocator,
         items: []T,
         head: usize,
         tail: usize,
 
-        pub fn init(allocator: Allocator) Self {
-            return .{
-                .allocator = allocator,
-                .items = &[_]T{},
-                .head = 0,
-                .tail = 0,
-            };
-        }
-        pub fn deinit(self: Self) void {
-            self.allocator.free(self.items);
+        pub fn deinit(self: Self, gpa: Allocator) void {
+            gpa.free(self.items);
         }
 
-        pub fn pushFront(self: *Self, item: T) !void {
-            try self.ensureUnusedCapacity(1);
+        pub fn pushFront(self: *Self, gpa: Allocator, item: T) !void {
+            try self.ensureUnusedCapacity(gpa, 1);
 
             self.tail = if (self.tail == 0) self.items.len - 1 else self.tail - 1;
             self.items[self.tail] = item;
         }
-        pub fn pushBack(self: *Self, item: T) !void {
-            try self.ensureUnusedCapacity(1);
+        pub fn pushBack(self: *Self, gpa: Allocator, item: T) !void {
+            try self.ensureUnusedCapacity(gpa, 1);
 
             const head = self.head;
             self.head = (self.head + 1) % self.items.len;
@@ -81,7 +77,7 @@ pub fn Deque(T: type) type {
             return self.items.len;
         }
 
-        pub fn ensureTotalCapacity(self: *Self, new_capacity: usize) !void {
+        pub fn ensureTotalCapacity(self: *Self, gpa: Allocator, new_capacity: usize) !void {
             if (self.items.len > new_capacity + 1) return;
 
             const old_size = self.items.len;
@@ -89,7 +85,7 @@ pub fn Deque(T: type) type {
 
             const old = self.items;
 
-            self.items = try self.allocator.alloc(T, new_size);
+            self.items = try gpa.alloc(T, new_size);
 
             // Copy the shortest section possible to new buffer
             if (self.tail <= self.head) {
@@ -112,10 +108,10 @@ pub fn Deque(T: type) type {
                 @memcpy(self.items[self.tail + (new_size - old_size) .. new_size], old[self.tail..old_size]);
                 self.tail += new_size - old_size;
             }
-            self.allocator.free(old);
+            gpa.free(old);
         }
-        pub fn ensureUnusedCapacity(self: *Self, unused: usize) !void {
-            try self.ensureTotalCapacity(self.count() + unused);
+        pub fn ensureUnusedCapacity(self: *Self, gpa: Allocator, unused: usize) !void {
+            try self.ensureTotalCapacity(gpa, self.count() + unused);
         }
         pub fn clearRetainingCapacity(self: *Self) void {
             self.head = 0;
@@ -143,29 +139,30 @@ fn growCapacity(current: usize, minimum: usize) usize {
     }
 }
 
-const test_alloc = std.testing.allocator;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 test "deque" {
-    var deque = Deque(usize).init(test_alloc);
-    defer deque.deinit();
+    const gpa = std.testing.allocator;
+
+    var deque = Deque(usize).empty;
+    defer deque.deinit(gpa);
 
     try expectEqual(0, deque.count());
 
-    try deque.pushBack(0);
+    try deque.pushBack(gpa, 0);
     try expectEqual(1, deque.count());
     try expectEqual(8, deque.capacity());
     try expectEqual(0, deque.front());
     try expectEqual(0, deque.back());
 
-    try deque.pushBack(1);
+    try deque.pushBack(gpa, 1);
     try expectEqual(2, deque.count());
     try expectEqual(8, deque.capacity());
     try expectEqual(0, deque.front());
     try expectEqual(1, deque.back());
 
-    try deque.pushFront(2);
+    try deque.pushFront(gpa, 2);
     try expectEqual(3, deque.count());
     try expectEqual(8, deque.capacity());
     try expectEqual(2, deque.front());
@@ -178,9 +175,9 @@ test "deque" {
 
     for (0..10) |i| {
         if (i % 2 == 0) {
-            try deque.pushBack(i);
+            try deque.pushBack(gpa, i);
         } else {
-            try deque.pushFront(i);
+            try deque.pushFront(gpa, i);
         }
     }
 
@@ -199,16 +196,18 @@ test "deque" {
 }
 
 test "popFront" {
-    var deque = Deque(usize).init(test_alloc);
-    defer deque.deinit();
+    const gpa = std.testing.allocator;
 
-    try deque.pushBack(0);
-    try deque.pushBack(1);
-    try deque.pushBack(2);
-    try deque.pushBack(3);
-    try deque.pushBack(4);
-    try deque.pushBack(5);
-    try deque.pushBack(6);
+    var deque = Deque(usize).empty;
+    defer deque.deinit(gpa);
+
+    try deque.pushBack(gpa, 0);
+    try deque.pushBack(gpa, 1);
+    try deque.pushBack(gpa, 2);
+    try deque.pushBack(gpa, 3);
+    try deque.pushBack(gpa, 4);
+    try deque.pushBack(gpa, 5);
+    try deque.pushBack(gpa, 6);
 
     var n: usize = 0;
     while (deque.popFront()) |_| {
