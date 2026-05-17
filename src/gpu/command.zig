@@ -148,8 +148,7 @@ pub const CommandEncoder = struct {
             self.cb,
             self.ctx.pools.buffers.getField(desc.src, .buffer) orelse @panic("buffer not found"),
             self.ctx.pools.buffers.getField(desc.dst, .buffer) orelse @panic("buffer not found"),
-            @intCast(regions.items.len),
-            @ptrCast(regions.items.ptr),
+            regions.items,
         );
     }
 
