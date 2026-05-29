@@ -2,6 +2,8 @@ const std = @import("std");
 
 const vk = @import("vulkan");
 
+const options = @import("options");
+
 const Gpu = @import("Gpu.zig");
 
 const DescriptorHeap = @This();
@@ -39,8 +41,12 @@ pub fn init(ctx: *Gpu, sizes: Sizes) !DescriptorHeap {
         .{ .type = .sampler, .descriptor_count = sizes.samplers },
         .{ .type = .storage_buffer, .descriptor_count = sizes.storage_buffers },
         .{ .type = .uniform_buffer, .descriptor_count = sizes.uniform_buffers },
-        .{ .type = .acceleration_structure_khr, .descriptor_count = sizes.acceleration_structures },
-    };
+    } ++ if (options.use_ray_tracing)
+        [_]vk.DescriptorPoolSize{
+            .{ .type = .acceleration_structure_khr, .descriptor_count = sizes.acceleration_structures },
+        }
+    else
+        .{};
 
     const pool_info: vk.DescriptorPoolCreateInfo = .{
         .flags = .{ .free_descriptor_set_bit = true, .update_after_bind_bit = true },
@@ -89,22 +95,31 @@ pub fn init(ctx: *Gpu, sizes: Sizes) !DescriptorHeap {
             .stage_flags = .fromInt(0x7fff_ffff),
             .p_immutable_samplers = null,
         },
-        .{
-            .binding = @intFromEnum(Bindings.acceleration_structure),
-            .descriptor_type = .acceleration_structure_khr,
-            .descriptor_count = sizes.acceleration_structures,
-            .stage_flags = .fromInt(0x7fff_ffff),
-            .p_immutable_samplers = null,
-        },
-    };
+    } ++ if (options.use_ray_tracing)
+        [_]vk.DescriptorSetLayoutBinding{
+            .{
+                .binding = @intFromEnum(Bindings.acceleration_structure),
+                .descriptor_type = .acceleration_structure_khr,
+                .descriptor_count = sizes.acceleration_structures,
+                .stage_flags = .fromInt(0x7fff_ffff),
+                .p_immutable_samplers = null,
+            },
+        }
+    else
+        .{};
+
     const binding_flags = [_]vk.DescriptorBindingFlags{
         .{ .partially_bound_bit = true, .update_after_bind_bit = true },
         .{ .partially_bound_bit = true, .update_after_bind_bit = true },
         .{ .partially_bound_bit = true, .update_after_bind_bit = true },
         .{ .partially_bound_bit = true, .update_after_bind_bit = true },
         .{ .partially_bound_bit = true, .update_after_bind_bit = true },
-        .{ .partially_bound_bit = true, .update_after_bind_bit = true },
-    };
+    } ++ if (options.use_ray_tracing)
+        [_]vk.DescriptorBindingFlags{
+            .{ .partially_bound_bit = true, .update_after_bind_bit = true },
+        }
+    else
+        .{};
 
     const layout_flags_info: vk.DescriptorSetLayoutBindingFlagsCreateInfo = .{
         .binding_count = binding_flags.len,

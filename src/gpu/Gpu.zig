@@ -4,6 +4,8 @@ const assert = std.debug.assert;
 const log = std.log;
 const Allocator = std.mem.Allocator;
 
+const options = @import("options");
+
 const root = @import("root.zig");
 const AccelerationStructure = root.AccelerationStructure;
 const AccelerationStructureSizes = root.AccelerationStructureSizes;
@@ -291,7 +293,9 @@ pub fn createBuffer(self: *Gpu, desc: *const root.BufferDesc) !Buffer {
     vk_usage.transfer_src_bit = true;
     vk_usage.transfer_dst_bit = true;
     vk_usage.shader_device_address_bit = true;
-    vk_usage.shader_binding_table_bit_khr = true;
+    if (options.use_ray_tracing) {
+        vk_usage.shader_binding_table_bit_khr = true;
+    }
 
     const buffer_info: vk.BufferCreateInfo = .{
         .size = desc.size,
@@ -1428,7 +1432,7 @@ fn createDevice(instance: Instance, candidate: DeviceCandidate, allocator: Alloc
     };
     const ray_tracing_pipeline_features: vk.PhysicalDeviceRayTracingPipelineFeaturesKHR = .{
         .p_next = @constCast(&accel_structure_features),
-        .ray_tracing_pipeline = .true,
+        .ray_tracing_pipeline = if (options.use_ray_tracing) .true else .false,
     };
 
     const queue_priority: [1]f32 = .{1};
@@ -1464,13 +1468,16 @@ fn createDevice(instance: Instance, candidate: DeviceCandidate, allocator: Alloc
     assert(hasExtension(available, vk.extensions.khr_copy_commands_2.name));
     try exts.append(allocator, vk.extensions.khr_copy_commands_2.name);
 
-    assert(hasExtension(available, vk.extensions.khr_acceleration_structure.name));
-    try exts.append(allocator, vk.extensions.khr_acceleration_structure.name);
-    assert(hasExtension(available, vk.extensions.khr_ray_tracing_pipeline.name));
-    try exts.append(allocator, vk.extensions.khr_ray_tracing_pipeline.name);
-    // Required by khr_acceleration_structure
-    assert(hasExtension(available, vk.extensions.khr_deferred_host_operations.name));
-    try exts.append(allocator, vk.extensions.khr_deferred_host_operations.name);
+    if (options.use_ray_tracing) {
+        assert(hasExtension(available, vk.extensions.khr_acceleration_structure.name));
+        try exts.append(allocator, vk.extensions.khr_acceleration_structure.name);
+        assert(hasExtension(available, vk.extensions.khr_ray_tracing_pipeline.name));
+        try exts.append(allocator, vk.extensions.khr_ray_tracing_pipeline.name);
+        // Required by khr_acceleration_structure
+        assert(hasExtension(available, vk.extensions.khr_deferred_host_operations.name));
+        try exts.append(allocator, vk.extensions.khr_deferred_host_operations.name);
+    }
+
     if (hasExtension(available, vk.extensions.khr_spirv_1_4.name)) {
         try exts.append(allocator, vk.extensions.khr_spirv_1_4.name);
     }

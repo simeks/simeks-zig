@@ -5,6 +5,24 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const options = .{
+        .use_ray_tracing = b.option(
+            bool,
+            "use_ray_tracing",
+            "Build with Vulkan ray tracing supprt",
+        ) orelse false,
+    };
+
+    const options_step = b.addOptions();
+    inline for (std.meta.fields(@TypeOf(options))) |field| {
+        options_step.addOption(
+            field.type,
+            field.name,
+            @field(options, field.name),
+        );
+    }
+    const options_mod = options_step.createModule();
+
     // Dependencies
     const vk_headers_dep = b.dependency("vulkan_headers", .{});
     const vkzig_dep = b.dependency("vulkan", .{
@@ -60,6 +78,7 @@ pub fn build(b: *std.Build) void {
     gpu_mod.addImport("gui", gui_mod);
     gpu_mod.addImport("vulkan", vk_mod);
     gpu_mod.addImport("vma", vma_dep.module("vma"));
+    gpu_mod.addImport("options", options_mod);
 
     // Generate wayland module (Linux only, using lazy dependency)
     // if (builtin.os.tag == .linux) {
