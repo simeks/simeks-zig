@@ -27,3 +27,8 @@ pub const Aabb = extern struct {
             self.min[2] > other.max[2]);
     }
 };
+
+pub const Ray = struct {
+    pos: Vec3,
+    dir: Vec3,
+};

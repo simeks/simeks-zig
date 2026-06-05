@@ -21,6 +21,7 @@ pub const fromEulerAngle = quat.fromEulerAngle;
 
 const primitives = @import("primitives.zig");
 pub const Aabb = primitives.Aabb;
+pub const Ray = primitives.Ray;
 
 pub fn identity(Type: type) Type {
     switch (Type) {
