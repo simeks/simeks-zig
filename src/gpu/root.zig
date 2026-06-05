@@ -340,6 +340,9 @@ pub const DepthStencilDesc = struct {
     depth_test_enabled: bool = false,
     depth_write_enabled: bool = false,
     depth_compare_op: CompareOp = .always,
+    depth_bias: f32 = 0,
+    depth_bias_clamp: f32 = 0,
+    depth_bias_slope_factor: f32 = 0,
 };
 
 pub const CullMode = enum(u32) {

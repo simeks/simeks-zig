@@ -1584,10 +1584,14 @@ fn createVkRenderPipeline(
         .polygon_mode = .fill,
         .cull_mode = conv.vkCullModeFlags(desc.cull_mode),
         .front_face = conv.vkFrontFace(desc.front_face),
-        .depth_bias_enable = .false,
-        .depth_bias_constant_factor = 0,
-        .depth_bias_clamp = 0,
-        .depth_bias_slope_factor = 0,
+        .depth_bias_enable = if (desc.depth_stencil.depth_bias != 0 or
+            desc.depth_stencil.depth_bias_slope_factor != 0)
+            .true
+        else
+            .false,
+        .depth_bias_constant_factor = desc.depth_stencil.depth_bias,
+        .depth_bias_clamp = desc.depth_stencil.depth_bias_clamp,
+        .depth_bias_slope_factor = desc.depth_stencil.depth_bias_slope_factor,
         .line_width = 1,
     };
 
