@@ -64,7 +64,7 @@ pub const Allocator = struct {
             .gpu_only => vma.VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
             .cpu_write => vma.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
                 vma.VMA_ALLOCATION_CREATE_MAPPED_BIT,
-            .cpu_read => vma.VMA_ALLOCATION_CREATE_MAPPED_BIT |
+            .cpu_read => vma.VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
                 vma.VMA_ALLOCATION_CREATE_MAPPED_BIT,
         };
 

@@ -771,4 +771,19 @@ pub const ComputePassEncoder = struct {
             group_count_z,
         );
     }
+
+    pub fn dispatchIndirect(
+        self: *ComputePassEncoder,
+        buffer: root.Buffer,
+        offset: u64,
+    ) void {
+        const buffer_entry = self.ctx.pools.buffers.get(buffer) orelse
+            @panic("buffer not found");
+
+        self.ctx.device.cmdDispatchIndirect(
+            self.cb,
+            buffer_entry.buffer,
+            offset,
+        );
+    }
 };
