@@ -6,6 +6,12 @@ pub const Aabb = extern struct {
     min: Vec3,
     max: Vec3,
 
+    pub fn fromCenterHalf(c: Vec3, h: Vec3) Aabb {
+        return .{
+            .min = c - h,
+            .max = c + h,
+        };
+    }
     pub fn center(self: Aabb) Vec3 {
         return (self.min + self.max) * @as(Vec3, @splat(0.5));
     }
