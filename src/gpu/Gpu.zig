@@ -128,7 +128,10 @@ pub fn create(allocator: Allocator, window: WindowInterface, fb_size: [2]u32) !*
     props2.p_next = &rt_props;
     self.instance.getPhysicalDeviceProperties2(candidate.physical_device, &props2);
 
-    log.info("GPU: {s}", .{props2.properties.device_name});
+    const device_name_len = std.mem.findScalar(u8, &props2.properties.device_name, 0) orelse
+        vk.MAX_PHYSICAL_DEVICE_NAME_SIZE;
+
+    log.info("GPU: {s}", .{props2.properties.device_name[0..device_name_len]});
 
     self.device_limits = props2.properties.limits;
     self.ray_tracing_props = rt_props;
